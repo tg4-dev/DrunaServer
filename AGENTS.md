@@ -65,7 +65,7 @@ Do not return raw `gin.H{"error": ...}` in new code.
 - Access tokens (`token_type=access`) — required for `/api/*` middleware
 - Refresh tokens (`token_type=refresh`) — only for `POST /auth/renew-token`
 - Refresh rotation: old refresh JTI stored in `revoked_tokens` table
-- Sign-in body: prefer `password`; legacy field `passwordHash` still accepted
+- Sign-in/sign-up body: `password` (plaintext); legacy `passwordHash` still accepted; DB column remains `password_hash`
 - User ID from JWT middleware (`userCtx`); never trust query/body for identity
 
 ### Rate limiting

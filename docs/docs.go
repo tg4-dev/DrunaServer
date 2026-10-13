@@ -1692,7 +1692,7 @@ const docTemplate = `{
         "model.SignInDoc": {
             "type": "object",
             "properties": {
-                "passwordHash": {
+                "password": {
                     "type": "string"
                 },
                 "username": {
@@ -1740,9 +1740,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
-                    "type": "string"
-                },
-                "passwordHash": {
                     "type": "string"
                 },
                 "telegramID": {
