@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"os"
 	"strconv"
 
@@ -36,11 +37,11 @@ func metricsMiddleware() gin.HandlerFunc {
 	}
 }
 
-func registerMetricsRoute(router *gin.Engine) {
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+func MetricsHandler() http.Handler {
+	return promhttp.Handler()
 }
 
-func metricsEnabled() bool {
+func MetricsEnabled() bool {
 	value := os.Getenv("METRICS_ENABLED")
 	if value == "" {
 		return false
@@ -50,4 +51,12 @@ func metricsEnabled() bool {
 		return false
 	}
 	return enabled
+}
+
+func MetricsAddr() string {
+	addr := os.Getenv("METRICS_ADDR")
+	if addr == "" {
+		return "127.0.0.1:9090"
+	}
+	return addr
 }

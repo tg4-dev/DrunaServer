@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -73,6 +74,22 @@ func main() {
 		}
 	}()
 
+	var metricsSrv *http.Server
+	if handler.MetricsEnabled() {
+		metricsSrv = &http.Server{
+			Addr:         handler.MetricsAddr(),
+			Handler:      handler.MetricsHandler(),
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+		go func() {
+			logrus.WithField("addr", metricsSrv.Addr).Info("metrics server started")
+			if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logrus.Fatalf("Error occured while running metrics server: %s", err)
+			}
+		}()
+	}
+
 	logrus.Println("DrunaServer started succesfully")
 
 	<-ctx.Done()
@@ -80,9 +97,20 @@ func main() {
 	logrus.Println("DrunaServer shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	var shutdownWG sync.WaitGroup
+	if metricsSrv != nil {
+		shutdownWG.Add(1)
+		go func() {
+			defer shutdownWG.Done()
+			if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+				logrus.Errorf("error occured on metrics server shutdown: %v", err)
+			}
+		}()
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logrus.Errorf("error occured on server shutdown: %v", err)
 	}
+	shutdownWG.Wait()
 	if err := db.Close(); err != nil {
 		logrus.Errorf("error occured on db closing: %v", err)
 	}

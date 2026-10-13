@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: druna
+    static_configs:
+      - targets: ["app:9090"]

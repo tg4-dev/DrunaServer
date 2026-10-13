@@ -36,7 +36,8 @@ go run cmd/main.go
 | `JWT_SECRET` | Yes | JWT HMAC signing key |
 | `BOT_TOKEN` | Telegram auth | Telegram bot token for initData HMAC |
 | `TELEGRAM_AUTH_TTL_HOURS` | No | Max Telegram initData age in hours (default `24`) |
-| `METRICS_ENABLED` | No | Expose `/metrics` (default `false`) |
+| `METRICS_ENABLED` | No | Serve Prometheus on `METRICS_ADDR` (default `false`). The public API does not expose metrics |
+| `METRICS_ADDR` | No | Metrics listen address (default `127.0.0.1:9090`; Docker compose uses `0.0.0.0:9090` without publishing the port) |
 | `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
 | `TRUSTED_PROXIES` | No | Comma-separated proxy CIDRs. Empty means do not trust forwarded headers |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins (default `*`) |
@@ -143,7 +144,7 @@ If a database was migrated with the old timestamp `20250619011729_migration_init
 ## Observability
 
 - `GET /ping/` — health + DB ping (`503` if DB down, `status: "degraded"`)
-- `GET /metrics` — Prometheus (only when `METRICS_ENABLED=true`)
+- Prometheus listens on `METRICS_ADDR` when `METRICS_ENABLED=true` (default `127.0.0.1:9090`). Compose does not publish that port. Grafana UI: `http://127.0.0.1:3000` (`admin` / `druna-dev`; change the password before sharing the host)
 - `notification_outbox` is read by an external bot, which sets `delivered_at`. This server only enqueues rows.
 - Request ID: `X-Request-ID` header (auto-generated if missing)
 - Access logs: JSON lines with `request_id`, method, path, status, duration
@@ -161,4 +162,4 @@ If a database was migrated with the old timestamp `20250619011729_migration_init
 
 - bcrypt password hashing without legacy migration — old users must re-register
 - Legacy `/api/*` route prefix mirrors `/api/v1/*` but is omitted from Swagger
-- `/swagger` and `/metrics` are public — protect via reverse proxy or env flags in production
+- `/swagger` is public — protect via reverse proxy or `SWAGGER_ENABLED=false` in production
