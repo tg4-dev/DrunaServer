@@ -42,9 +42,6 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		ping.GET("/", h.ping)
 	}
 
-	if metricsEnabled() {
-		registerMetricsRoute(router)
-	}
 	if swaggerEnabled() {
 		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}

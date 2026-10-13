@@ -467,8 +467,9 @@ Rules:
 | Method | Path | Response |
 |--------|------|----------|
 | GET | `/ping/` | `{ "data": { "status": "ok", "db": "ok" } }` — on DB failure: HTTP **503**, `"status": "degraded"`, `"db": "error"` |
-| GET | `/metrics` | Prometheus (not JSON envelope). Off unless `METRICS_ENABLED=true` |
 | GET | `/swagger/*` | Swagger UI. On unless `SWAGGER_ENABLED=false` |
+
+Prometheus is not part of the public API. When the server is started with Docker Compose, Grafana is at `http://127.0.0.1:3000` (`admin` / `druna-dev`). Metrics listen on `METRICS_ADDR` (`METRICS_ENABLED`, default address `127.0.0.1:9090`) and that port is not published from the containers.
 
 Use `GET /ping/` for a lightweight connectivity/health check (e.g. a startup reachability probe or an offline banner).
 

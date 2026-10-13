@@ -10,7 +10,7 @@ Backend REST API for the Druna app: users, events, friends, and groups.
 - Friends with search, incoming/outgoing requests, and re-request after reject
 - Groups with members, time confirmation, group free-time, group events, leave/delete
 - Unified JSON response envelope
-- Prometheus metrics and health check with DB probe
+- Prometheus metrics on a separate address, Grafana in Docker, and a health check with DB probe
 - GitHub Actions CI (unit + Postgres integration tests)
 
 ## Tech stack
@@ -37,7 +37,8 @@ Default port: `8000` (from `configs/config.yaml`).
 | `JWT_SECRET` | Yes | JWT signing key |
 | `BOT_TOKEN` | For Telegram | Telegram bot token |
 | `TELEGRAM_AUTH_TTL_HOURS` | No | Max initData age in hours (default `24`) |
-| `METRICS_ENABLED` | No | Expose `/metrics` (default `false`) |
+| `METRICS_ENABLED` | No | Serve Prometheus on `METRICS_ADDR` (default `false`). The public API does not expose metrics |
+| `METRICS_ADDR` | No | Metrics listen address (default `127.0.0.1:9090`) |
 | `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
 | `TRUSTED_PROXIES` | No | Comma-separated proxy CIDRs for client IP. Empty trusts none |
 | `CORS_ORIGINS` | No | Comma-separated origins (default `*`) |
@@ -97,6 +98,47 @@ make migrate-up           # manual migrations in running compose network
 make down
 ```
 
+On a laptop, Grafana is at `http://127.0.0.1:3000` (`admin` / `druna-dev`). Change `GF_SECURITY_ADMIN_PASSWORD` in compose before anyone else can reach the host. Prometheus scrapes the app on the Docker network (`METRICS_ADDR=0.0.0.0:9090`); that port is not published. A local `go run` with `METRICS_ENABLED=true` listens on `127.0.0.1:9090`.
+
+## Production
+
+`docker-compose.yml` starts Postgres, the API, Prometheus, and Grafana together. Prometheus scrapes `app:9090` inside the `druna-net` network. The metrics port and Prometheus stay off the published ports. Grafana is bound to `127.0.0.1:3000` on the server.
+
+On the host, edit `docker-compose.yml` before the first start:
+
+| Setting | Production value |
+|---------|------------------|
+| `POSTGRES_PASSWORD` and the password in `DATABASE_URL` | Same strong password |
+| `JWT_SECRET` | Long random secret |
+| `BOT_TOKEN` | Telegram bot token, if Telegram login is used |
+| `CORS_ORIGINS` | Real client origins, comma-separated |
+| `SWAGGER_ENABLED` | `false` |
+| `TRUSTED_PROXIES` | CIDRs of the reverse proxy, if one sits in front of the API |
+| `GF_SECURITY_ADMIN_PASSWORD` | Grafana password other than `druna-dev` |
+| `db.ports` | Remove `5432:5432` so Postgres is reachable only on `druna-net` |
+
+Leave `METRICS_ENABLED=true` and `METRICS_ADDR=0.0.0.0:9090`. Keep `9090` and the Prometheus service out of `ports`. Publish the API on `22000` and put TLS in front of that port only.
+
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+Migrations run when the app container starts (`DATABASE_URL`). Postgres data stays in the `pgdata` volume. The Druna dashboard and the Prometheus datasource are loaded from `deploy/grafana/` on every start.
+
+Check the API on the server:
+
+```bash
+curl -sS http://127.0.0.1:22000/ping/
+```
+
+Open Grafana from a laptop through an SSH tunnel:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 user@your-server
+```
+
+Then open `http://127.0.0.1:3000` (`admin` and the password set in compose). The **Druna** dashboard is already there: request rate, p95 latency, 5xx share, and goroutines.
+
 ## Testing & quality
 
 ```bash
@@ -129,7 +171,6 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /ping/ | Health check (`status`, `db`) |
-| GET | /metrics | Prometheus metrics (`METRICS_ENABLED=true`) |
 | GET | /swagger/* | Swagger UI (`SWAGGER_ENABLED=false` to hide) |
 | POST | /auth/sign-up | Register |
 | POST | /auth/sign-in | Login |
