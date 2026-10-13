@@ -12,39 +12,39 @@ import (
 	"time"
 )
 
-func buildInitData(t *testing.T, botToken string, values url.Values) string {
+func signFields(t *testing.T, fields map[string]string, secret []byte) string {
 	t.Helper()
-
-	values.Del("hash")
-
 	var keys []string
-	for k := range values {
-		keys = append(keys, k)
+	for key := range fields {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-
 	var parts []string
-	for _, k := range keys {
-		parts = append(parts, k+"="+values.Get(k))
+	for _, key := range keys {
+		parts = append(parts, key+"="+fields[key])
 	}
-	checkString := strings.Join(parts, "\n")
-
-	secret := sha256.Sum256([]byte(botToken))
-	mac := hmac.New(sha256.New, secret[:])
-	mac.Write([]byte(checkString))
-	values.Set("hash", hex.EncodeToString(mac.Sum(nil)))
-
-	return values.Encode()
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func TestParseInitDataValid(t *testing.T) {
-	botToken := "123456:ABC-DEF"
-	values := url.Values{}
-	values.Set("auth_date", strconv.FormatInt(time.Now().Unix(), 10))
-	values.Set("user", `{"id":123,"first_name":"Test","username":"tester"}`)
+func sampleFields() map[string]string {
+	return map[string]string{
+		"auth_date": strconv.FormatInt(time.Now().Unix(), 10),
+		"user":      `{"id":123,"first_name":"Test","username":"tester"}`,
+	}
+}
 
-	initData := buildInitData(t, botToken, values)
-	result, err := parseInitData(initData, botToken)
+func TestVerifyWebAppInitDataValid(t *testing.T) {
+	botToken := "123456:ABC-DEF"
+	fields := sampleFields()
+	fields["hash"] = signFields(t, fields, webAppSecret(botToken))
+
+	values := url.Values{}
+	for key, value := range fields {
+		values.Set(key, value)
+	}
+	result, err := verifyWebAppInitData(values.Encode(), botToken)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,29 +53,88 @@ func TestParseInitDataValid(t *testing.T) {
 	}
 }
 
-func TestParseInitDataInvalidHash(t *testing.T) {
-	_, err := parseInitData("user=%7B%7D&hash=bad", "token")
+func TestVerifyLoginWidgetValid(t *testing.T) {
+	botToken := "123456:ABC-DEF"
+	fields := map[string]string{
+		"auth_date":  strconv.FormatInt(time.Now().Unix(), 10),
+		"first_name": "Test",
+		"id":         "123",
+		"username":   "tester",
+	}
+	hash := signFields(t, fields, loginWidgetSecret(botToken))
+	if err := verifyLoginWidget(fields, hash, botToken); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWebAppSignatureRejectedByWidgetVerifier(t *testing.T) {
+	botToken := "123456:ABC-DEF"
+	fields := sampleFields()
+	hash := signFields(t, fields, webAppSecret(botToken))
+	if err := verifyLoginWidget(fields, hash, botToken); err == nil {
+		t.Fatal("widget verifier must reject a Mini App signature")
+	}
+}
+
+func TestWidgetSignatureRejectedByWebAppVerifier(t *testing.T) {
+	botToken := "123456:ABC-DEF"
+	fields := sampleFields()
+	hash := signFields(t, fields, loginWidgetSecret(botToken))
+	fields["hash"] = hash
+	values := url.Values{}
+	for key, value := range fields {
+		values.Set(key, value)
+	}
+	if _, err := verifyWebAppInitData(values.Encode(), botToken); err == nil {
+		t.Fatal("webapp verifier must reject a Login Widget signature")
+	}
+}
+
+func TestVerifyWebAppInvalidHash(t *testing.T) {
+	_, err := verifyWebAppInitData("user=%7B%7D&hash=bad", "token")
 	if err == nil {
 		t.Fatal("expected invalid hash error")
 	}
 }
 
-func TestParseInitDataMissingHash(t *testing.T) {
-	_, err := parseInitData("user=%7B%7D", "token")
+func TestVerifyWebAppMissingHash(t *testing.T) {
+	_, err := verifyWebAppInitData("user=%7B%7D", "token")
 	if err == nil {
 		t.Fatal("expected missing hash error")
 	}
 }
 
-func TestParseInitDataExpired(t *testing.T) {
+func TestVerifyWebAppExpired(t *testing.T) {
 	botToken := "123456:ABC-DEF"
+	fields := sampleFields()
+	fields["auth_date"] = strconv.FormatInt(time.Now().Add(-48*time.Hour).Unix(), 10)
+	fields["hash"] = signFields(t, map[string]string{
+		"auth_date": fields["auth_date"],
+		"user":      fields["user"],
+	}, webAppSecret(botToken))
 	values := url.Values{}
-	values.Set("auth_date", strconv.FormatInt(time.Now().Add(-48*time.Hour).Unix(), 10))
-	values.Set("user", `{"id":123,"first_name":"Test","username":"tester"}`)
-
-	initData := buildInitData(t, botToken, values)
-	_, err := parseInitData(initData, botToken)
-	if err == nil {
+	for key, value := range fields {
+		values.Set(key, value)
+	}
+	if _, err := verifyWebAppInitData(values.Encode(), botToken); err == nil {
 		t.Fatal("expected expired initData error")
+	}
+}
+
+func TestVerifyWebAppFutureAuthDate(t *testing.T) {
+	botToken := "123456:ABC-DEF"
+	fields := sampleFields()
+	fields["auth_date"] = strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10)
+	signed := map[string]string{
+		"auth_date": fields["auth_date"],
+		"user":      fields["user"],
+	}
+	fields["hash"] = signFields(t, signed, webAppSecret(botToken))
+	values := url.Values{}
+	for key, value := range fields {
+		values.Set(key, value)
+	}
+	if _, err := verifyWebAppInitData(values.Encode(), botToken); err == nil {
+		t.Fatal("expected future auth_date error")
 	}
 }

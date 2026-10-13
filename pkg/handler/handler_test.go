@@ -14,10 +14,11 @@ import (
 
 type mockTokenRepo struct{}
 
-func (mockTokenRepo) RevokeToken(string, time.Time) error { return nil }
-func (mockTokenRepo) IsTokenRevoked(string) (bool, error) { return false, nil }
-func (mockTokenRepo) Ping() error                         { return nil }
-func (mockTokenRepo) PurgeExpiredTokens() (int64, error)  { return 0, nil }
+func (mockTokenRepo) ClaimRefreshToken(string, string, time.Time) (bool, error) { return true, nil }
+func (mockTokenRepo) RevokeFamily(string, time.Time) error                      { return nil }
+func (mockTokenRepo) IsFamilyRevoked(string) (bool, error)                      { return false, nil }
+func (mockTokenRepo) Ping() error                                               { return nil }
+func (mockTokenRepo) PurgeExpiredTokens() (int64, error)                        { return 0, nil }
 
 func TestMain(m *testing.M) {
 	os.Setenv("JWT_SECRET", "test-secret-key-for-unit-tests-only")

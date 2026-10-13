@@ -40,7 +40,7 @@ func setupIntegration(t *testing.T) (*gin.Engine, func()) {
 	router := handler.NewHandler(services).InitRoutes()
 
 	cleanup := func() {
-		_, _ = db.Exec(`TRUNCATE notification_outbox, users, events, friends, group_members, groups, revoked_tokens RESTART IDENTITY CASCADE`)
+		_, _ = db.Exec(`TRUNCATE notification_outbox, users, events, friends, group_members, groups, revoked_tokens, revoked_token_families RESTART IDENTITY CASCADE`)
 		_ = db.Close()
 	}
 

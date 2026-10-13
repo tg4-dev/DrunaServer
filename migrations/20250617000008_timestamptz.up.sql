@@ -1,0 +1,9 @@
+ALTER TABLE events
+    ALTER COLUMN start_time TYPE TIMESTAMPTZ USING start_time AT TIME ZONE 'UTC',
+    ALTER COLUMN end_time TYPE TIMESTAMPTZ USING end_time AT TIME ZONE 'UTC';
+
+ALTER TABLE groups
+    ALTER COLUMN confirmed_time TYPE TIMESTAMPTZ USING confirmed_time AT TIME ZONE 'UTC';
+
+ALTER TABLE group_members
+    ALTER COLUMN confirmed_time TYPE TIMESTAMPTZ USING confirmed_time AT TIME ZONE 'UTC';

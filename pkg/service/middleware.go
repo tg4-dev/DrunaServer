@@ -14,7 +14,11 @@ import (
 	"time"
 )
 
-const defaultTelegramAuthTTL = 24 * time.Hour
+const (
+	defaultTelegramAuthTTL = 24 * time.Hour
+	telegramAuthSkew       = time.Minute
+	webAppSecretKey        = "WebAppData"
+)
 
 func telegramAuthTTL() time.Duration {
 	hoursStr := os.Getenv("TELEGRAM_AUTH_TTL_HOURS")
@@ -28,62 +32,84 @@ func telegramAuthTTL() time.Duration {
 	return time.Duration(hours) * time.Hour
 }
 
-// Парсим telegram init data
-func parseInitData(initData, botToken string) (map[string]string, error) {
+func webAppSecret(botToken string) []byte {
+	mac := hmac.New(sha256.New, []byte(webAppSecretKey))
+	mac.Write([]byte(botToken))
+	return mac.Sum(nil)
+}
+
+func loginWidgetSecret(botToken string) []byte {
+	sum := sha256.Sum256([]byte(botToken))
+	return sum[:]
+}
+
+func verifyWebAppInitData(initData, botToken string) (map[string]string, error) {
 	parsed, err := url.ParseQuery(initData)
 	if err != nil {
 		return nil, err
 	}
 
-	// Extract hash
 	hash := parsed.Get("hash")
-	if hash == "" {
-		return nil, errors.New("missing hash")
-	}
 	parsed.Del("hash")
 
-	// Sort keys
+	fields := make(map[string]string, len(parsed))
+	for key := range parsed {
+		fields[key] = parsed.Get(key)
+	}
+	if err := verifySignedFields(fields, hash, webAppSecret(botToken)); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func verifyLoginWidget(fields map[string]string, hash, botToken string) error {
+	return verifySignedFields(fields, hash, loginWidgetSecret(botToken))
+}
+
+func verifySignedFields(fields map[string]string, hash string, secret []byte) error {
+	if hash == "" {
+		return errors.New("missing hash")
+	}
+
 	var keys []string
-	for k := range parsed {
-		keys = append(keys, k)
+	for key := range fields {
+		if key == "hash" {
+			continue
+		}
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// Build check_string
 	var checkStrings []string
-	for _, k := range keys {
-		checkStrings = append(checkStrings, k+"="+parsed.Get(k))
+	for _, key := range keys {
+		checkStrings = append(checkStrings, key+"="+fields[key])
 	}
 	checkString := strings.Join(checkStrings, "\n")
 
-	// Compute HMAC SHA256
-	secret := sha256.Sum256([]byte(botToken))
-	h := hmac.New(sha256.New, secret[:])
-	h.Write([]byte(checkString))
-	expected := hex.EncodeToString(h.Sum(nil))
-
-	if expected != hash {
-		return nil, errors.New("invalid Telegram auth")
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(checkString))
+	expected := mac.Sum(nil)
+	got, err := hex.DecodeString(hash)
+	if err != nil || !hmac.Equal(expected, got) {
+		return errors.New("invalid Telegram auth")
 	}
+	return validateAuthDate(fields["auth_date"])
+}
 
-	authDateStr := parsed.Get("auth_date")
+func validateAuthDate(authDateStr string) error {
 	if authDateStr == "" {
-		return nil, errors.New("missing auth_date")
+		return errors.New("missing auth_date")
 	}
 	authDateUnix, err := strconv.ParseInt(authDateStr, 10, 64)
 	if err != nil {
-		return nil, errors.New("invalid auth_date")
+		return errors.New("invalid auth_date")
 	}
 	authDate := time.Unix(authDateUnix, 0)
 	if time.Since(authDate) > telegramAuthTTL() {
-		return nil, fmt.Errorf("initData expired (auth_date older than %s)", telegramAuthTTL())
+		return fmt.Errorf("initData expired (auth_date older than %s)", telegramAuthTTL())
 	}
-
-	// Build result
-	result := make(map[string]string)
-	for _, k := range keys {
-		result[k] = parsed.Get(k)
+	if authDate.After(time.Now().Add(telegramAuthSkew)) {
+		return errors.New("auth_date is in the future")
 	}
-
-	return result, nil
+	return nil
 }

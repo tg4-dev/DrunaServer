@@ -25,7 +25,7 @@ func (r *AuthPostgres) CreateUser(user model.User) (int, error) {
 	row := r.db.QueryRow(query, user.Name, user.Username, user.Email, user.PasswordHash, user.TelegramID, user.AvatarURL)
 
 	if err := row.Scan(&id); err != nil {
-		return 0, err
+		return 0, MapPGError(err)
 	}
 	return id, nil
 }
@@ -37,7 +37,7 @@ func (r *AuthPostgres) GetUserByUsername(username string) (model.User, error) {
 		usersTable,
 	)
 	err := r.db.Get(&user, query, username)
-	return user, err
+	return user, MapPGError(err)
 }
 
 func (r *AuthPostgres) GetUserByTelegramID(telegramID int64) (model.User, error) {
@@ -47,7 +47,7 @@ func (r *AuthPostgres) GetUserByTelegramID(telegramID int64) (model.User, error)
 		usersTable,
 	)
 	err := r.db.Get(&user, query, telegramID)
-	return user, err
+	return user, MapPGError(err)
 }
 
 func (r *AuthPostgres) GetUserByID(userID int) (model.User, error) {
@@ -57,7 +57,7 @@ func (r *AuthPostgres) GetUserByID(userID int) (model.User, error) {
 		usersTable,
 	)
 	err := r.db.Get(&user, query, userID)
-	return user, err
+	return user, MapPGError(err)
 }
 
 func (r *AuthPostgres) UpdateUserProfile(userID int, name, avatarURL string) error {
@@ -78,11 +78,16 @@ func (r *AuthPostgres) SearchUsers(prefix string) ([]model.FriendInfo, error) {
 	var users []model.FriendInfo
 	query := fmt.Sprintf(`
 		SELECT id, name, username FROM %s
-		WHERE username ILIKE $1
+		WHERE username ILIKE $1 ESCAPE '\'
 		ORDER BY username
 		LIMIT 20`, usersTable)
-	if err := r.db.Select(&users, query, trimmed+"%"); err != nil {
+	if err := r.db.Select(&users, query, escapeLike(trimmed)+"%"); err != nil {
 		return nil, err
 	}
 	return users, nil
+}
+
+func escapeLike(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(value)
 }

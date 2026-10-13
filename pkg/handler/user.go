@@ -24,7 +24,7 @@ func (h *Handler) getCurrentUser(c *gin.Context) {
 
 	profile, err := h.services.Authorization.GetCurrentUser(userID)
 	if err != nil {
-		NewErrorResponse(c, http.StatusNotFound, "user not found")
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, profile)
@@ -55,7 +55,7 @@ func (h *Handler) updateCurrentUser(c *gin.Context) {
 
 	profile, err := h.services.Authorization.UpdateProfile(userID, input.Name, input.AvatarURL)
 	if err != nil {
-		NewErrorResponse(c, http.StatusInternalServerError, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, profile)

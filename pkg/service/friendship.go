@@ -1,7 +1,6 @@
 package service
 
 import (
-	"database/sql"
 	"druna_server/pkg/model"
 	"druna_server/pkg/repository"
 	"errors"
@@ -20,28 +19,42 @@ func NewFriendshipService(repo repository.Friendship, authRepo repository.Author
 
 func (s *FriendshipService) SendFriendRequest(userID int, username string) error {
 	friendID, err := s.repo.ExistsByUsername(username)
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("user not found")
+	}
 	if err != nil {
 		return err
 	}
 	if friendID == userID {
-		return errors.New("cannot send friend request to yourself")
+		return Validation("cannot send friend request to yourself")
 	}
 
-	status, err := s.repo.GetFriendshipStatus(userID, friendID)
+	status, requesterID, err := s.repo.GetFriendshipStatus(userID, friendID)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return err
+	}
 	if err == nil {
 		switch status {
 		case "accepted":
-			return errors.New("you are already friends")
+			return Conflict("you are already friends")
 		case "pending":
-			return errors.New("friend request already pending")
+			if requesterID == userID {
+				return Conflict("friend request already pending")
+			}
+			return Conflict("user already sent you a request")
 		case "rejected":
-			return errors.New("friend request was rejected; cannot send again")
+			if err := s.repo.DeleteFriend(userID, friendID); err != nil {
+				return err
+			}
+		default:
+			return Validation(fmt.Sprintf("unexpected friendship status: %s", status))
 		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
 	}
 
 	if err := s.repo.CreateFriendRequest(userID, friendID); err != nil {
+		if errors.Is(err, repository.ErrDuplicate) {
+			return Conflict("friend request already pending")
+		}
 		return err
 	}
 	if s.notification != nil {
@@ -53,43 +66,69 @@ func (s *FriendshipService) SendFriendRequest(userID int, username string) error
 }
 
 func (s *FriendshipService) AcceptFriendRequest(userID int, username string) error {
-	friendID, err := s.repo.ExistsByUsername(username)
+	friendID, err := s.lookupUser(username)
 	if err != nil {
 		return err
 	}
 
-	status, err := s.repo.GetFriendshipStatus(userID, friendID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return errors.New("no friend request found")
+	status, requesterID, err := s.repo.GetFriendshipStatus(userID, friendID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("no friend request found")
 	}
 	if err != nil {
 		return err
 	}
 	if status != "pending" {
-		return fmt.Errorf("friend request is not pending (status: %s)", status)
+		return Validation(fmt.Sprintf("friend request is not pending (status: %s)", status))
+	}
+	if requesterID == userID {
+		return Forbidden("only the recipient can accept a friend request")
 	}
 
-	return s.repo.AcceptFriendRequest(userID, friendID)
+	if err := s.repo.AcceptFriendRequest(userID, friendID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return NotFound("no friend request found")
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *FriendshipService) RejectFriendRequest(userID int, username string) error {
-	friendID, err := s.repo.ExistsByUsername(username)
+	friendID, err := s.lookupUser(username)
 	if err != nil {
 		return err
 	}
 
-	status, err := s.repo.GetFriendshipStatus(userID, friendID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return errors.New("no friend request found")
+	status, requesterID, err := s.repo.GetFriendshipStatus(userID, friendID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("no friend request found")
 	}
 	if err != nil {
 		return err
 	}
 	if status != "pending" {
-		return fmt.Errorf("friend request is not pending (status: %s)", status)
+		return Validation(fmt.Sprintf("friend request is not pending (status: %s)", status))
+	}
+	if requesterID == userID {
+		return Forbidden("only the recipient can reject a friend request")
 	}
 
-	return s.repo.RejectFriendRequest(userID, friendID)
+	if err := s.repo.RejectFriendRequest(userID, friendID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return NotFound("no friend request found")
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *FriendshipService) lookupUser(username string) (int, error) {
+	friendID, err := s.repo.ExistsByUsername(username)
+	if errors.Is(err, repository.ErrNotFound) {
+		return 0, NotFound("user not found")
+	}
+	return friendID, err
 }
 
 func (s *FriendshipService) FriendList(userID int) ([]model.FriendInfo, error) {
@@ -109,9 +148,15 @@ func (s *FriendshipService) OutgoingFriendRequests(userID int) ([]model.FriendIn
 }
 
 func (s *FriendshipService) DeleteFriend(userID int, username string) error {
-	friendID, err := s.repo.ExistsByUsername(username)
+	friendID, err := s.lookupUser(username)
 	if err != nil {
 		return err
 	}
-	return s.repo.DeleteFriend(userID, friendID)
+	if err := s.repo.DeleteFriend(userID, friendID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return NotFound("no friendship found to delete")
+		}
+		return err
+	}
+	return nil
 }

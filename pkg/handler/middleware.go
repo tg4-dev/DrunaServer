@@ -62,7 +62,7 @@ func (h *Handler) userIdentity(c *gin.Context) {
 
 	userId, _, err := h.services.Authorization.ParseAccessToken(headerParts[1])
 	if err != nil {
-		NewErrorResponse(c, http.StatusUnauthorized, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 

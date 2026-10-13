@@ -48,6 +48,8 @@ definitions:
     properties:
       date:
         type: string
+      timezone:
+        type: string
     type: object
   model.FriendRequestDoc:
     properties:
@@ -71,6 +73,8 @@ definitions:
     properties:
       date:
         type: string
+      timezone:
+        type: string
     type: object
   model.RenewTokenDoc:
     properties:
@@ -84,10 +88,43 @@ definitions:
       username:
         type: string
     type: object
+  model.SignUpDoc:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
   model.TelegramAuthDoc:
     properties:
       initData:
         type: string
+    type: object
+  model.TelegramWidgetDoc:
+    properties:
+      auth_date:
+        type: integer
+      first_name:
+        type: string
+      hash:
+        type: string
+      id:
+        type: integer
+      last_name:
+        type: string
+      photo_url:
+        type: string
+      username:
+        type: string
+    required:
+    - auth_date
+    - first_name
+    - hash
+    - id
     type: object
   model.UpdateProfileInput:
     properties:
@@ -95,27 +132,6 @@ definitions:
         type: string
       name:
         type: string
-    type: object
-  model.User:
-    properties:
-      avatarURL:
-        type: string
-      email:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-      password:
-        type: string
-      telegramID:
-        type: integer
-      username:
-        type: string
-    required:
-    - email
-    - name
-    - username
     type: object
 host: localhost:8000
 info:
@@ -971,6 +987,30 @@ paths:
       summary: Update current user profile
       tags:
       - users
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refresh token in body or Authorization header
+        in: body
+        name: input
+        schema:
+          $ref: '#/definitions/model.RenewTokenDoc'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      summary: Revoke a refresh-token family
+      tags:
+      - auth
   /auth/renew-token:
     post:
       consumes:
@@ -1034,7 +1074,7 @@ paths:
         name: input
         required: true
         schema:
-          $ref: '#/definitions/model.User'
+          $ref: '#/definitions/model.SignUpDoc'
       produces:
       - application/json
       responses:
@@ -1044,6 +1084,10 @@ paths:
             $ref: '#/definitions/model.APIResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/model.APIResponse'
         "500":
@@ -1079,7 +1123,36 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/model.APIResponse'
-      summary: Authenticate via Telegram WebApp initData
+      summary: Authenticate via Telegram Mini App initData
+      tags:
+      - auth
+  /auth/telegram/widget:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Telegram Login Widget fields
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/model.TelegramWidgetDoc'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      summary: Authenticate via Telegram Login Widget
       tags:
       - auth
   /ping/:

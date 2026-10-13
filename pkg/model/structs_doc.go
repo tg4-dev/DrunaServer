@@ -40,7 +40,8 @@ type TimeSlot struct {
 }
 
 type FreeTimeInputDoc struct {
-	Date string `json:"date"`
+	Date     string `json:"date"`
+	Timezone string `json:"timezone"`
 }
 
 type FreeTimeResponseDoc struct {
@@ -49,6 +50,16 @@ type FreeTimeResponseDoc struct {
 
 type TelegramAuthDoc struct {
 	InitData string `json:"initData"`
+}
+
+type TelegramWidgetDoc struct {
+	ID        int64  `json:"id" binding:"required"`
+	FirstName string `json:"first_name" binding:"required"`
+	LastName  string `json:"last_name"`
+	Username  string `json:"username"`
+	PhotoURL  string `json:"photo_url"`
+	AuthDate  int64  `json:"auth_date" binding:"required"`
+	Hash      string `json:"hash" binding:"required"`
 }
 
 type FriendRequestDoc struct {

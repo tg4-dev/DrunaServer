@@ -4,10 +4,10 @@ Backend REST API for the Druna app: users, events, friends, and groups.
 
 ## Features
 
-- JWT auth with separate access/refresh tokens, rotation, and revocation
-- Telegram WebApp login
+- JWT auth with separate access/refresh tokens, rotation, family revocation, and logout
+- Telegram Mini App and Login Widget auth
 - Events with overlap validation, filters, pagination, and free-time slots
-- Friends with search, incoming/outgoing requests, and reject blocking
+- Friends with search, incoming/outgoing requests, and re-request after reject
 - Groups with members, time confirmation, group free-time, group events, leave/delete
 - Unified JSON response envelope
 - Prometheus metrics and health check with DB probe
@@ -37,7 +37,9 @@ Default port: `8000` (from `configs/config.yaml`).
 | `JWT_SECRET` | Yes | JWT signing key |
 | `BOT_TOKEN` | For Telegram | Telegram bot token |
 | `TELEGRAM_AUTH_TTL_HOURS` | No | Max initData age in hours (default `24`) |
-| `METRICS_ENABLED` | No | Expose `/metrics` endpoint (default `true`) |
+| `METRICS_ENABLED` | No | Expose `/metrics` (default `false`) |
+| `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
+| `TRUSTED_PROXIES` | No | Comma-separated proxy CIDRs for client IP. Empty trusts none |
 | `CORS_ORIGINS` | No | Comma-separated origins (default `*`) |
 | `DATABASE_URL` | Docker | Used by entrypoint for auto-migrations |
 | `TEST_DATABASE_URL` | Tests | DSN for integration tests |
@@ -84,7 +86,7 @@ curl -X POST http://localhost:8000/auth/renew-token \
 
 Only **access** tokens work on `/api/*`. Refresh tokens are rejected by the auth middleware.
 
-Token TTL: access **12 hours**, refresh **7 days**.
+Token TTL: access **15 minutes**, refresh **7 days**. Logout: `POST /auth/logout` with the refresh token revokes that token family.
 
 ## Docker
 
@@ -127,12 +129,14 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /ping/ | Health check (`status`, `db`) |
-| GET | /metrics | Prometheus metrics (disable with `METRICS_ENABLED=false`) |
-| GET | /swagger/* | Swagger UI |
+| GET | /metrics | Prometheus metrics (`METRICS_ENABLED=true`) |
+| GET | /swagger/* | Swagger UI (`SWAGGER_ENABLED=false` to hide) |
 | POST | /auth/sign-up | Register |
 | POST | /auth/sign-in | Login |
 | POST | /auth/renew-token | Refresh token rotation |
-| POST | /auth/telegram | Telegram WebApp login |
+| POST | /auth/logout | Revoke the refresh-token family |
+| POST | /auth/telegram | Telegram Mini App login |
+| POST | /auth/telegram/widget | Telegram Login Widget |
 
 ### Users (auth required)
 
@@ -149,7 +153,7 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | POST | /api/v1/events/ | Create event |
 | PATCH | /api/v1/events/:id | Update event |
 | DELETE | /api/v1/events/:id | Delete event |
-| POST | /api/v1/events/free-time | Personal free slots for a day |
+| POST | /api/v1/events/free-time | Personal free slots for a day (`date`, optional `timezone`) |
 
 ### Friends (auth required)
 

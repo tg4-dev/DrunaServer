@@ -2,7 +2,6 @@ package handler
 
 import (
 	"druna_server/pkg/model"
-	"druna_server/pkg/service"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,17 +10,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const maxEventPageSize = 100
+
 func parseEventFilter(c *gin.Context) (model.EventFilter, error) {
 	filter := model.EventFilter{Limit: 50}
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = limit
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit < 1 || limit > maxEventPageSize {
+			return filter, errors.New("limit must be between 1 and 100")
 		}
+		filter.Limit = limit
 	}
 	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if offset, err := strconv.Atoi(offsetStr); err == nil {
-			filter.Offset = offset
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			return filter, errors.New("offset must be a non-negative integer")
 		}
+		filter.Offset = offset
 	}
 	filter.Type = c.Query("type")
 	if from := c.Query("dateFrom"); from != "" {
@@ -75,11 +80,7 @@ func (h *Handler) getGroupEventList(c *gin.Context) {
 
 	result, err := h.services.Group.ListGroupEvents(groupID, userID, filter)
 	if err != nil {
-		if errors.Is(err, service.ErrGroupAccessDenied) {
-			NewErrorResponse(c, http.StatusForbidden, err.Error())
-			return
-		}
-		NewErrorResponse(c, http.StatusInternalServerError, "failed to fetch group events: "+err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, result)
@@ -117,11 +118,7 @@ func (h *Handler) addGroupEvent(c *gin.Context) {
 
 	eventID, err := h.services.Group.CreateGroupEvent(groupID, userID, input)
 	if err != nil {
-		if errors.Is(err, service.ErrGroupAccessDenied) {
-			NewErrorResponse(c, http.StatusForbidden, err.Error())
-			return
-		}
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"eventId": eventID})
@@ -207,12 +204,5 @@ func (h *Handler) deleteGroupEvent(c *gin.Context) {
 }
 
 func writeGroupEventError(c *gin.Context, err error) {
-	switch {
-	case errors.Is(err, service.ErrGroupEventNotFound):
-		NewErrorResponse(c, http.StatusNotFound, err.Error())
-	case errors.Is(err, service.ErrGroupAccessDenied), errors.Is(err, service.ErrGroupEventForbidden):
-		NewErrorResponse(c, http.StatusForbidden, err.Error())
-	default:
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
-	}
+	writeServiceError(c, err)
 }

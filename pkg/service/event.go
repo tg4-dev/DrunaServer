@@ -16,42 +16,54 @@ func NewEventService(repo repository.Event) *EventService {
 	return &EventService{repo: repo}
 }
 
-func (s *EventService) validateEventTimes(userID int, start, end time.Time, excludeID int) error {
+func validateEventWindow(start, end time.Time) error {
 	if !end.After(start) {
-		return errors.New("end time must be after start time")
-	}
-	overlap, err := s.repo.HasOverlappingEvent(userID, start, end, excludeID)
-	if err != nil {
-		return err
-	}
-	if overlap {
-		return errors.New("event overlaps with an existing event")
+		return Validation("end time must be after start time")
 	}
 	return nil
 }
 
+func mapEventWriteErr(err error, overlapMsg string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, repository.ErrOverlap) {
+		return Validation(overlapMsg)
+	}
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("event not found")
+	}
+	return err
+}
+
 func (s *EventService) CreateEvent(event model.Event) (int, error) {
-	if err := s.validateEventTimes(event.UserID, event.StartTime, event.EndTime, 0); err != nil {
+	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
 		return 0, err
 	}
-	return s.repo.CreateEvent(event)
+	id, err := s.repo.CreateEvent(event)
+	if err != nil {
+		return 0, mapEventWriteErr(err, "event overlaps with an existing event")
+	}
+	return id, nil
 }
 
 func (s *EventService) UpdateEvent(userID int, event model.Event) error {
-	if err := s.validateEventTimes(userID, event.StartTime, event.EndTime, event.ID); err != nil {
+	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
 		return err
 	}
-	return s.repo.UpdateEvent(userID, event)
+	return mapEventWriteErr(s.repo.UpdateEvent(userID, event), "event overlaps with an existing event")
 }
 
 func (s *EventService) DeleteEvent(userID, eventID int) error {
-	return s.repo.DeleteEvent(userID, eventID)
+	err := s.repo.DeleteEvent(userID, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("event not found")
+	}
+	return err
 }
 
 func (s *EventService) GetEventList(userID int, filter model.EventFilter) (model.EventListResponse, error) {
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
+	filter = normalizeEventFilter(filter)
 	events, err := s.repo.GetEventListFiltered(userID, filter)
 	if err != nil {
 		return model.EventListResponse{}, err
@@ -69,11 +81,26 @@ func (s *EventService) GetEventList(userID int, filter model.EventFilter) (model
 }
 
 func (s *EventService) GetFreeTime(userID int, date time.Time) ([]model.TimeSlot, error) {
-	events, err := s.repo.GetEventList(userID)
+	dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	dayEnd := dayStart.Add(24 * time.Hour)
+	eventsByUser, err := s.repo.GetBusyEventsForUsers([]int{userID}, dayStart, dayEnd)
 	if err != nil {
 		return nil, err
 	}
-	return ComputeFreeSlots(events, date), nil
+	return ComputeFreeSlots(eventsByUser[userID], date), nil
+}
+
+func normalizeEventFilter(filter model.EventFilter) model.EventFilter {
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return filter
 }
 
 func (s *EventService) GetFreeTimeForUsers(userIDs []int, date time.Time) ([]model.TimeSlot, error) {

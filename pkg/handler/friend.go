@@ -41,7 +41,7 @@ func (h *Handler) searchUsers(c *gin.Context) {
 	prefix := c.Query("username")
 	users, err := h.services.Authorization.SearchUsers(prefix)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"users": users})
@@ -62,7 +62,7 @@ func (h *Handler) getFriendList(c *gin.Context) {
 	}
 	friends, err := h.services.Friendship.FriendList(userID)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"friends": friends})
@@ -83,7 +83,7 @@ func (h *Handler) getFriendRequestList(c *gin.Context) {
 	}
 	friends, err := h.services.Friendship.FriendRequestList(userID)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"friends": friends})
@@ -104,7 +104,7 @@ func (h *Handler) getIncomingFriendRequests(c *gin.Context) {
 	}
 	friends, err := h.services.Friendship.IncomingFriendRequests(userID)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"friends": friends})
@@ -125,7 +125,7 @@ func (h *Handler) getOutgoingFriendRequests(c *gin.Context) {
 	}
 	friends, err := h.services.Friendship.OutgoingFriendRequests(userID)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"friends": friends})
@@ -153,7 +153,7 @@ func (h *Handler) sendFriendRequest(c *gin.Context) {
 		return
 	}
 	if err := h.services.Friendship.SendFriendRequest(userID, input.Username); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "friend request sent"})
@@ -181,7 +181,7 @@ func (h *Handler) acceptFriendRequest(c *gin.Context) {
 		return
 	}
 	if err := h.services.Friendship.AcceptFriendRequest(userID, input.Username); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "friend request accepted"})
@@ -209,7 +209,7 @@ func (h *Handler) rejectFriendRequest(c *gin.Context) {
 		return
 	}
 	if err := h.services.Friendship.RejectFriendRequest(userID, input.Username); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "friend request rejected"})
@@ -237,7 +237,7 @@ func (h *Handler) deleteFriend(c *gin.Context) {
 		return
 	}
 	if err := h.services.Friendship.DeleteFriend(userID, input.Username); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "friend deleted", "username": input.Username})

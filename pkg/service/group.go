@@ -1,7 +1,6 @@
 package service
 
 import (
-	"database/sql"
 	"druna_server/pkg/model"
 	"druna_server/pkg/repository"
 	"errors"
@@ -21,7 +20,7 @@ func NewGroupService(repo repository.Group, friendRepo repository.Friendship, ev
 
 func (s *GroupService) CreateGroup(input model.Group) (int, error) {
 	if input.Name == "" {
-		return 0, errors.New("group name is required")
+		return 0, Validation("group name is required")
 	}
 	return s.repo.CreateGroup(input)
 }
@@ -31,38 +30,64 @@ func (s *GroupService) ListGroups(userID int) ([]model.Group, error) {
 }
 
 func (s *GroupService) GetGroupDetails(groupID, userID int) (model.GroupDetails, error) {
-	return s.repo.GetGroupDetails(groupID, userID)
+	details, err := s.repo.GetGroupDetails(groupID, userID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return details, NotFound("group not found or access denied")
+	}
+	return details, err
 }
 
 func (s *GroupService) AddGroupMember(groupID, ownerID int, username string) error {
 	memberID, err := s.friendRepo.ExistsByUsername(username)
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("user not found")
+	}
 	if err != nil {
 		return err
 	}
-	status, err := s.friendRepo.GetFriendshipStatus(ownerID, memberID)
-	if errors.Is(err, sql.ErrNoRows) || status != "accepted" {
-		return errors.New("can only add accepted friends to a group")
+	status, _, err := s.friendRepo.GetFriendshipStatus(ownerID, memberID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Validation("can only add accepted friends to a group")
+		}
+		return err
+	}
+	if status != "accepted" {
+		return Validation("can only add accepted friends to a group")
 	}
 	isMember, err := s.repo.IsGroupMember(groupID, memberID)
 	if err != nil {
 		return err
 	}
 	if isMember {
-		return errors.New("user is already a group member")
+		return Conflict("user is already a group member")
 	}
-	return s.repo.AddGroupMember(groupID, ownerID, memberID)
+	if err := s.repo.AddGroupMember(groupID, ownerID, memberID); err != nil {
+		if errors.Is(err, repository.ErrNotOwner) {
+			return Forbidden("only group owner can add members")
+		}
+		return mapGroupRepoErr(err)
+	}
+	return nil
 }
 
 func (s *GroupService) DeleteGroup(groupID, ownerID int) error {
-	return s.repo.DeleteGroup(groupID, ownerID)
+	err := s.repo.DeleteGroup(groupID, ownerID)
+	if errors.Is(err, repository.ErrNotOwner) {
+		return Forbidden("only group owner can delete the group")
+	}
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFound("group not found")
+	}
+	return err
 }
 
 func (s *GroupService) LeaveGroup(groupID, userID int) error {
-	return s.repo.LeaveGroup(groupID, userID)
+	return mapGroupRepoErr(s.repo.LeaveGroup(groupID, userID))
 }
 
 func (s *GroupService) ConfirmMemberTime(groupID, userID int, confirmedTime time.Time) error {
-	if err := s.repo.ConfirmMemberTime(groupID, userID, confirmedTime); err != nil {
+	if err := mapGroupRepoErr(s.repo.ConfirmMemberTime(groupID, userID, confirmedTime)); err != nil {
 		return err
 	}
 	if s.notification != nil {
@@ -75,7 +100,7 @@ func (s *GroupService) ConfirmMemberTime(groupID, userID int, confirmedTime time
 }
 
 func (s *GroupService) GetGroupFreeTime(groupID, userID int, date time.Time) ([]model.TimeSlot, error) {
-	if _, err := s.repo.GetGroupDetails(groupID, userID); err != nil {
+	if _, err := s.GetGroupDetails(groupID, userID); err != nil {
 		return nil, err
 	}
 	memberIDs, err := s.repo.GetMemberUserIDs(groupID)
@@ -87,12 +112,6 @@ func (s *GroupService) GetGroupFreeTime(groupID, userID int, date time.Time) ([]
 	return eventSvc.GetFreeTimeForUsers(memberIDs, date)
 }
 
-var (
-	ErrGroupAccessDenied   = errors.New("you are not a member of this group")
-	ErrGroupEventNotFound  = errors.New("group event not found")
-	ErrGroupEventForbidden = errors.New("only the event creator or group owner can modify this event")
-)
-
 func (s *GroupService) CreateGroupEvent(groupID, userID int, event model.Event) (int, error) {
 	isMember, err := s.repo.IsGroupMember(groupID, userID)
 	if err != nil {
@@ -102,22 +121,15 @@ func (s *GroupService) CreateGroupEvent(groupID, userID int, event model.Event) 
 		return 0, ErrGroupAccessDenied
 	}
 
-	if !event.EndTime.After(event.StartTime) {
-		return 0, errors.New("end time must be after start time")
-	}
-	overlap, err := s.eventRepo.HasOverlappingGroupEvent(groupID, event.StartTime, event.EndTime, 0)
-	if err != nil {
+	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
 		return 0, err
-	}
-	if overlap {
-		return 0, errors.New("event overlaps with an existing group event")
 	}
 
 	event.UserID = userID
 	event.GroupID = &groupID
 	eventID, err := s.eventRepo.CreateGroupEvent(event)
 	if err != nil {
-		return 0, err
+		return 0, mapEventWriteErr(err, "event overlaps with an existing group event")
 	}
 
 	if s.notification != nil {
@@ -144,9 +156,7 @@ func (s *GroupService) ListGroupEvents(groupID, userID int, filter model.EventFi
 		return model.EventListResponse{}, ErrGroupAccessDenied
 	}
 
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	}
+	filter = normalizeEventFilter(filter)
 	events, err := s.eventRepo.GetGroupEvents(groupID, filter)
 	if err != nil {
 		return model.EventListResponse{}, err
@@ -172,8 +182,11 @@ func (s *GroupService) canModifyGroupEvent(groupID, eventID, userID int) (model.
 		return model.Event{}, ErrGroupAccessDenied
 	}
 	existing, err := s.eventRepo.GetGroupEventByID(groupID, eventID)
-	if err != nil {
+	if errors.Is(err, repository.ErrNotFound) {
 		return existing, ErrGroupEventNotFound
+	}
+	if err != nil {
+		return existing, err
 	}
 	details, err := s.repo.GetGroupDetails(groupID, userID)
 	if err != nil {
@@ -190,23 +203,38 @@ func (s *GroupService) UpdateGroupEvent(groupID, eventID, userID int, event mode
 		return err
 	}
 
-	if !event.EndTime.After(event.StartTime) {
-		return errors.New("end time must be after start time")
-	}
-	overlap, err := s.eventRepo.HasOverlappingGroupEvent(groupID, event.StartTime, event.EndTime, eventID)
-	if err != nil {
+	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
 		return err
 	}
-	if overlap {
-		return errors.New("event overlaps with an existing group event")
-	}
-
-	return s.eventRepo.UpdateGroupEvent(groupID, eventID, event)
+	return mapEventWriteErr(s.eventRepo.UpdateGroupEvent(groupID, eventID, event), "event overlaps with an existing group event")
 }
 
 func (s *GroupService) DeleteGroupEvent(groupID, eventID, userID int) error {
 	if _, err := s.canModifyGroupEvent(groupID, eventID, userID); err != nil {
 		return err
 	}
-	return s.eventRepo.DeleteGroupEvent(groupID, eventID)
+	err := s.eventRepo.DeleteGroupEvent(groupID, eventID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrGroupEventNotFound
+	}
+	return err
+}
+
+func mapGroupRepoErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, repository.ErrNotFound):
+		return NotFound("group not found")
+	case errors.Is(err, repository.ErrNotOwner):
+		return Forbidden("only the group owner can do that")
+	case errors.Is(err, repository.ErrOwnerCannotLeave):
+		return Validation("group owner cannot leave; delete the group instead")
+	case errors.Is(err, repository.ErrNotMember):
+		return Forbidden("you are not a member of this group")
+	case errors.Is(err, repository.ErrDuplicate):
+		return Conflict("user is already a group member")
+	default:
+		return err
+	}
 }

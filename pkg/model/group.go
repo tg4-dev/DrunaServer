@@ -8,7 +8,7 @@ type Group struct {
 	ID            int       `json:"groupID" db:"id"`
 	OwnerID       int       `json:"ownerID" db:"owner_id"`
 	Name          string    `json:"name" db:"name" binding:"required"`
-	ConfirmedTime time.Time `json:"confirmedTime" db:"confirmed_time"`
+	ConfirmedTime *time.Time `json:"confirmedTime" db:"confirmed_time"`
 }
 
 type GroupMemberInfo struct {
@@ -32,5 +32,6 @@ type ConfirmGroupTimeDoc struct {
 }
 
 type GroupFreeTimeInputDoc struct {
-	Date string `json:"date"`
+	Date     string `json:"date"`
+	Timezone string `json:"timezone"`
 }

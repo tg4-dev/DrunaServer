@@ -28,13 +28,13 @@ func (m *handlerAuthRepo) CreateUser(user model.User) (int, error) {
 func (m *handlerAuthRepo) GetUserByUsername(username string) (model.User, error) {
 	user, ok := m.users[username]
 	if !ok {
-		return model.User{}, os.ErrNotExist
+		return model.User{}, repository.ErrNotFound
 	}
 	return user, nil
 }
 
 func (m *handlerAuthRepo) GetUserByTelegramID(telegramID int64) (model.User, error) {
-	return model.User{}, os.ErrNotExist
+	return model.User{}, repository.ErrNotFound
 }
 
 func (m *handlerAuthRepo) GetUserByID(userID int) (model.User, error) {
@@ -43,7 +43,7 @@ func (m *handlerAuthRepo) GetUserByID(userID int) (model.User, error) {
 			return user, nil
 		}
 	}
-	return model.User{}, os.ErrNotExist
+	return model.User{}, repository.ErrNotFound
 }
 
 func (m *handlerAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) error {
@@ -59,7 +59,7 @@ func (m *handlerAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) 
 			return nil
 		}
 	}
-	return os.ErrNotExist
+	return repository.ErrNotFound
 }
 
 func (m *handlerAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error) {
@@ -68,10 +68,13 @@ func (m *handlerAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error)
 
 type handlerTokenRepo struct{}
 
-func (m *handlerTokenRepo) RevokeToken(jti string, expiresAt time.Time) error { return nil }
-func (m *handlerTokenRepo) IsTokenRevoked(jti string) (bool, error)           { return false, nil }
-func (m *handlerTokenRepo) PurgeExpiredTokens() (int64, error)                { return 0, nil }
-func (m *handlerTokenRepo) Ping() error                                       { return nil }
+func (m *handlerTokenRepo) ClaimRefreshToken(jti, familyID string, expiresAt time.Time) (bool, error) {
+	return true, nil
+}
+func (m *handlerTokenRepo) RevokeFamily(familyID string, expiresAt time.Time) error { return nil }
+func (m *handlerTokenRepo) IsFamilyRevoked(familyID string) (bool, error)           { return false, nil }
+func (m *handlerTokenRepo) PurgeExpiredTokens() (int64, error)                      { return 0, nil }
+func (m *handlerTokenRepo) Ping() error                                             { return nil }
 
 type handlerNotificationRepo struct{}
 

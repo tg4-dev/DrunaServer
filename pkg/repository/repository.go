@@ -18,8 +18,9 @@ type Authorization interface {
 }
 
 type Token interface {
-	RevokeToken(jti string, expiresAt time.Time) error
-	IsTokenRevoked(jti string) (bool, error)
+	ClaimRefreshToken(jti, familyID string, expiresAt time.Time) (bool, error)
+	RevokeFamily(familyID string, expiresAt time.Time) error
+	IsFamilyRevoked(familyID string) (bool, error)
 	PurgeExpiredTokens() (int64, error)
 	Ping() error
 }
@@ -56,7 +57,7 @@ type Friendship interface {
 	GetIncomingFriendRequests(userID int) ([]model.FriendInfo, error)
 	GetOutgoingFriendRequests(userID int) ([]model.FriendInfo, error)
 	GetFriendRequestList(userID int) ([]model.FriendInfo, error)
-	GetFriendshipStatus(userID, friendID int) (string, error)
+	GetFriendshipStatus(userID, friendID int) (status string, requesterID int, err error)
 	DeleteFriend(userID int, friendID int) error
 }
 

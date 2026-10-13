@@ -6,6 +6,8 @@ import (
 	"druna_server/pkg/handler"
 	"druna_server/pkg/repository"
 	"druna_server/pkg/service"
+	"errors"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -58,28 +60,31 @@ func main() {
 	services := service.NewService(repos)
 	handlers := handler.NewHandler(services)
 
-	startTokenPurge(repos.Token)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	startTokenPurge(ctx, repos.Token)
 
 	srv := new(druna.Server)
 
 	go func() {
-		if err := srv.Run(viper.GetString("port"), handlers.InitRoutes()); err != nil {
+		if err := srv.Run(viper.GetString("port"), handlers.InitRoutes()); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logrus.Fatalf("Error occured while running http server: %s", err)
 		}
 	}()
 
 	logrus.Println("DrunaServer started succesfully")
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	<-quit
+	<-ctx.Done()
 
 	logrus.Println("DrunaServer shutting down")
-	if err := srv.Shutdown(context.Background()); err != nil {
-		logrus.Errorf("error occured on server shutdown")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logrus.Errorf("error occured on server shutdown: %v", err)
 	}
 	if err := db.Close(); err != nil {
-		logrus.Errorf("error occured on db closing")
+		logrus.Errorf("error occured on db closing: %v", err)
 	}
 }
 
@@ -90,18 +95,23 @@ func initConfig() error {
 	return viper.ReadInConfig()
 }
 
-func startTokenPurge(tokenRepo repository.Token) {
+func startTokenPurge(ctx context.Context, tokenRepo repository.Token) {
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			count, err := tokenRepo.PurgeExpiredTokens()
-			if err != nil {
-				logrus.WithError(err).Error("failed to purge expired revoked tokens")
-				continue
-			}
-			if count > 0 {
-				logrus.WithField("count", count).Info("purged expired revoked tokens")
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				count, err := tokenRepo.PurgeExpiredTokens()
+				if err != nil {
+					logrus.WithError(err).Error("failed to purge expired revoked tokens")
+					continue
+				}
+				if count > 0 {
+					logrus.WithField("count", count).Info("purged expired revoked tokens")
+				}
 			}
 		}
 	}()

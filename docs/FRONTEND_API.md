@@ -129,12 +129,13 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
 
 | Token | Use | TTL |
 |-------|-----|-----|
-| `accessToken` | All `/api/v1/*` requests | **12 hours** |
-| `refreshToken` | Only `POST /auth/renew-token` | **7 days** |
+| `accessToken` | All `/api/v1/*` requests | **15 minutes** |
+| `refreshToken` | `POST /auth/renew-token` and `POST /auth/logout` | **7 days** |
 
 - The auth middleware **rejects refresh tokens** on API routes (`401`).
-- Refresh tokens are **rotated**: after a successful renew, the old refresh token is revoked. Always persist the new pair and discard the old one.
+- Refresh tokens are **rotated**: after a successful renew, the old refresh token is claimed. Reusing it revokes the whole token family, including the token that was just issued. Always persist the new pair and discard the old one.
 - `/auth/*` routes are rate limited to **30 requests/minute per IP**.
+- Search and free-time routes are limited to **60 requests/minute per user**.
 
 ### Sign up
 
@@ -149,7 +150,7 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
 }
 ```
 
-Send plaintext `password` (min **8 characters**). Do not send a pre-hashed value.
+Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. `telegramID` in the body is ignored. A taken username or email returns **409** `username or email already taken`. Unknown users and wrong passwords both return **401** `invalid credentials`.
 
 **Response `data`:** `{ "id": 1 }`
 
@@ -188,6 +189,16 @@ Alternative: send the refresh token as `Authorization: Bearer <refreshToken>`.
 
 **Response `data`:** a new `accessToken` + `refreshToken` pair. Save both.
 
+### Logout
+
+`POST /auth/logout`
+
+```json
+{ "refreshToken": "eyJ..." }
+```
+
+Revokes the refresh-token family. The current access token stays valid until it expires (at most 15 minutes). **Response `data`:** `{ "message": "logged out" }`.
+
 ### Recommended auth flow
 
 ```
@@ -195,23 +206,37 @@ Alternative: send the refresh token as `Authorization: Bearer <refreshToken>`.
 2. Each API call -> Authorization: Bearer <accessToken>
 3. On 401        -> POST /auth/renew-token -> store new pair -> retry the original request once
 4. Renew fails   -> clear tokens -> navigate to sign-in
+5. Explicit logout -> POST /auth/logout with the refresh token -> clear the secure store
 ```
 
 ### Telegram login (optional)
 
-The backend also supports Telegram-based auth via `POST /auth/telegram` with a raw Telegram `initData` string. This is intended for a Telegram Mini App / WebView context where `initData` is provided by the Telegram client.
+Two contracts, both checked with `BOT_TOKEN`:
 
-For a **standalone native app** this is generally not used, because obtaining a valid signed `initData` outside Telegram's WebView is non-trivial. If you later add "Login with Telegram" to the mobile app (e.g. via the Telegram Login flow), the server contract is:
-
-`POST /auth/telegram`
+`POST /auth/telegram` — Telegram Mini App `initData` (`window.Telegram.WebApp.initData`). The secret is HMAC-SHA256 of the bot token with key `WebAppData`.
 
 ```json
 { "initData": "query_id=...&user=...&auth_date=...&hash=..." }
 ```
 
-- The server validates the HMAC signature using its `BOT_TOKEN`.
-- It rejects `initData` older than `TELEGRAM_AUTH_TTL_HOURS` (default **24h**) based on `auth_date`.
-- On success it auto-registers or logs in the user and returns the same `{ accessToken, refreshToken }` pair.
+`POST /auth/telegram/widget` — Telegram Login Widget. The secret is SHA256 of the bot token. Send the widget fields flat:
+
+```json
+{
+  "id": 123456789,
+  "first_name": "Alice",
+  "last_name": "Doe",
+  "username": "alice",
+  "photo_url": "https://t.me/i/userpic/a.jpg",
+  "auth_date": 1710000000,
+  "hash": "..."
+}
+```
+
+- Both reject `auth_date` older than `TELEGRAM_AUTH_TTL_HOURS` (default **24h**) and more than one minute in the future.
+- On success the server auto-registers or logs in the user and returns `{ accessToken, refreshToken }`.
+- If the Telegram username or email is already taken, the account is created as `tg_<id>`.
+- Avatar URLs are stored only when they are `https`.
 
 Unless you specifically integrate Telegram login, **use `sign-up` / `sign-in` as the primary auth method.**
 
@@ -233,7 +258,7 @@ Guidance:
 - Persist **both** tokens in the secure store so the user stays logged in across cold starts.
 - Keep the access token in memory for the app session; read the refresh token from secure storage when you need to renew.
 - Wrap all API calls with a single interceptor that adds the `Authorization` header and handles the `401 -> renew -> retry` cycle in one place.
-- On explicit logout, delete both tokens from the secure store. (There is no server-side "logout" endpoint; refresh rotation naturally invalidates old refresh tokens once a new one is issued.)
+- On explicit logout, call `POST /auth/logout` and delete both tokens from the secure store.
 
 ---
 
@@ -271,7 +296,7 @@ Prefix: `/api/v1/users`. All routes require auth.
 }
 ```
 
-Both fields are optional; omitted fields are unchanged. Image upload is out of scope — send an already-hosted `avatarURL`.
+Both fields are optional; omitted fields are unchanged. Image upload is out of scope — send an already-hosted `avatarURL`. Non-empty `avatarURL` must be an `https` URL.
 
 ---
 
@@ -287,8 +312,8 @@ Query params (all optional):
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `limit` | int | Page size (default 50) |
-| `offset` | int | Pagination offset |
+| `limit` | int | Page size, 1–100 (default 50). Other values return **400** |
+| `offset` | int | Pagination offset, must be >= 0 |
 | `type` | string | Filter by event type |
 | `dateFrom` | RFC3339 | Events ending on or after |
 | `dateTo` | RFC3339 | Events starting on or before |
@@ -347,10 +372,10 @@ Validation errors (`400`): end before start, or overlapping with an existing per
 `POST /api/v1/events/free-time`
 
 ```json
-{ "date": "2026-06-17" }
+{ "date": "2026-06-17", "timezone": "Europe/Moscow" }
 ```
 
-Date format: **`YYYY-MM-DD`**.
+Date format: **`YYYY-MM-DD`**. Optional `timezone` is an IANA name (default `UTC`) and selects the calendar day. Busy time includes personal events and group events the user belongs to. Search and this route are limited to 60 requests/minute per user.
 
 **Response `data`:**
 
@@ -382,7 +407,7 @@ Prefix: `/api/v1/friends`. All routes require auth.
 
 **FriendInfo:** `{ "id": 2, "name": "Bob", "username": "bob" }`
 
-Business rules (`400`): no self-request, no duplicate pending, no re-request after reject.
+Business rules: no self-request (**400**). Already friends, a duplicate pending request, or a request the other person already sent you returns **409** (`user already sent you a request`). A rejected request can be sent again. Only the recipient can accept or reject (**403**).
 
 ---
 
@@ -396,8 +421,8 @@ Prefix: `/api/v1/groups`. All routes require auth.
 | GET | `/list` | — | User's groups |
 | GET | `/:id` | — | Details + members |
 | POST | `/:id/members` | `{ "username": "bob" }` | Owner only; **member must be an accepted friend** |
-| POST | `/:id/confirm` | `{ "confirmedTime": "2026-06-20T18:00:00Z" }` | Member confirms |
-| POST | `/:id/free-time` | `{ "date": "2026-06-20" }` | Shared free slots |
+| POST | `/:id/confirm` | `{ "confirmedTime": "2026-06-20T18:00:00Z" }` | Member confirms. `confirmedTime` on the group is `null` until every member confirms the same instant |
+| POST | `/:id/free-time` | `{ "date": "2026-06-20", "timezone": "Europe/Moscow" }` | Shared free slots. `timezone` is optional IANA, default `UTC` |
 | POST | `/:id/leave` | — | Not for owner |
 | DELETE | `/:id` | — | Owner only |
 
@@ -442,8 +467,8 @@ Rules:
 | Method | Path | Response |
 |--------|------|----------|
 | GET | `/ping/` | `{ "data": { "status": "ok", "db": "ok" } }` — on DB failure: HTTP **503**, `"status": "degraded"`, `"db": "error"` |
-| GET | `/metrics` | Prometheus (not JSON envelope); disabled with `METRICS_ENABLED=false` |
-| GET | `/swagger/*` | Swagger UI — protect in production via reverse proxy |
+| GET | `/metrics` | Prometheus (not JSON envelope). Off unless `METRICS_ENABLED=true` |
+| GET | `/swagger/*` | Swagger UI. On unless `SWAGGER_ENABLED=false` |
 
 Use `GET /ping/` for a lightweight connectivity/health check (e.g. a startup reachability probe or an offline banner).
 
@@ -644,7 +669,7 @@ The server records notification-worthy events in a `notification_outbox` table:
 - `group_confirm` — a member confirmed a group time
 - `group_event_created` — a group event was created (payload: `groupId`, `eventId`, `title`, `startTime`)
 
-There is **no push delivery built into DrunaServer today** — the outbox is a hook for a future delivery worker (e.g. a companion service pushing via APNs/FCM or Telegram). Until that exists, the mobile app should surface these by **polling** the relevant list endpoints when it foregrounds or on pull-to-refresh:
+There is **no push delivery built into DrunaServer**. A companion bot reads `notification_outbox` and sets `delivered_at` when a row is delivered. Enqueue failures are logged and do not fail the API call. Until a push pipeline exists, the mobile app should surface these by **polling** the relevant list endpoints when it foregrounds or on pull-to-refresh:
 
 - Incoming friend requests: `GET /api/v1/friends/requests/incoming`
 - Group state: `GET /api/v1/groups/:id`

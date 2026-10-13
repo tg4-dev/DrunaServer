@@ -22,7 +22,7 @@ func (r *FriendshipPostgres) ExistsByUsername(username string) (int, error) {
 
 	row := r.db.QueryRow(query, username)
 	if err := row.Scan(&id); err != nil {
-		return 0, err
+		return 0, MapPGError(err)
 	}
 	return id, nil
 }
@@ -37,20 +37,20 @@ func (r *FriendshipPostgres) CreateFriendRequest(userID int, friendID int) error
 		"pending",
 		time.Now())
 	if err := row.Scan(&id); err != nil {
-		return err
+		return MapPGError(err)
 	}
 	return nil
 }
 
 func (r *FriendshipPostgres) AcceptFriendRequest(userID int, friendID int) error {
 	var id int
-	query := fmt.Sprintf("UPDATE %s SET status = 'accepted' WHERE friend_id = $1 AND user_id = $2 RETURNING friend_id", friendsTable)
+	query := fmt.Sprintf("UPDATE %s SET status = 'accepted', confirmed_at = NOW() WHERE friend_id = $1 AND user_id = $2 RETURNING friend_id", friendsTable)
 
 	row := r.db.QueryRow(query,
 		userID,
 		friendID)
 	if err := row.Scan(&id); err != nil {
-		return err
+		return MapPGError(err)
 	}
 	return nil
 }
@@ -63,7 +63,7 @@ func (r *FriendshipPostgres) RejectFriendRequest(userID int, friendID int) error
 		userID,
 		friendID)
 	if err := row.Scan(&id); err != nil {
-		return err
+		return MapPGError(err)
 	}
 	return nil
 }
@@ -128,14 +128,20 @@ func (r *FriendshipPostgres) GetFriendRequestList(userID int) ([]model.FriendInf
 	return append(incoming, outgoing...), nil
 }
 
-func (r *FriendshipPostgres) GetFriendshipStatus(userID, friendID int) (string, error) {
-	var status string
+func (r *FriendshipPostgres) GetFriendshipStatus(userID, friendID int) (string, int, error) {
+	var row struct {
+		Status      string `db:"status"`
+		RequesterID int    `db:"user_id"`
+	}
 	query := fmt.Sprintf(`
-		SELECT status FROM %s
+		SELECT status, user_id FROM %s
 		WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)
 		LIMIT 1`, friendsTable)
-	err := r.db.Get(&status, query, userID, friendID)
-	return status, err
+	err := r.db.Get(&row, query, userID, friendID)
+	if err != nil {
+		return "", 0, MapPGError(err)
+	}
+	return row.Status, row.RequesterID, nil
 }
 
 func (r *FriendshipPostgres) DeleteFriend(userID int, friendID int) error {
@@ -152,7 +158,7 @@ func (r *FriendshipPostgres) DeleteFriend(userID int, friendID int) error {
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("no friendship found to delete")
+		return ErrNotFound
 	}
 
 	return nil

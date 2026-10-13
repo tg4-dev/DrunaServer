@@ -27,7 +27,7 @@ func metricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.FullPath()
 		if path == "" {
-			path = c.Request.URL.Path
+			path = "unmatched"
 		}
 		timer := prometheus.NewTimer(httpRequestDuration.WithLabelValues(c.Request.Method, path))
 		c.Next()
@@ -43,11 +43,11 @@ func registerMetricsRoute(router *gin.Engine) {
 func metricsEnabled() bool {
 	value := os.Getenv("METRICS_ENABLED")
 	if value == "" {
-		return true
+		return false
 	}
 	enabled, err := strconv.ParseBool(value)
 	if err != nil {
-		return true
+		return false
 	}
 	return enabled
 }

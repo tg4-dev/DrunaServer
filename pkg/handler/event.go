@@ -4,7 +4,6 @@ import (
 	"druna_server/pkg/model"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -28,38 +27,15 @@ func (h *Handler) getEventList(c *gin.Context) {
 		return
 	}
 
-	filter := model.EventFilter{Limit: 50}
-	if limitStr := c.Query("limit"); limitStr != "" {
-		if limit, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = limit
-		}
-	}
-	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if offset, err := strconv.Atoi(offsetStr); err == nil {
-			filter.Offset = offset
-		}
-	}
-	filter.Type = c.Query("type")
-	if from := c.Query("dateFrom"); from != "" {
-		t, err := time.Parse(time.RFC3339, from)
-		if err != nil {
-			NewErrorResponse(c, http.StatusBadRequest, "dateFrom must be RFC3339")
-			return
-		}
-		filter.DateFrom = &t
-	}
-	if to := c.Query("dateTo"); to != "" {
-		t, err := time.Parse(time.RFC3339, to)
-		if err != nil {
-			NewErrorResponse(c, http.StatusBadRequest, "dateTo must be RFC3339")
-			return
-		}
-		filter.DateTo = &t
+	filter, err := parseEventFilter(c)
+	if err != nil {
+		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	result, err := h.services.Event.GetEventList(userID, filter)
 	if err != nil {
-		NewErrorResponse(c, http.StatusInternalServerError, "failed to fetch events: "+err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, result)
@@ -82,23 +58,25 @@ func (h *Handler) getFreeTime(c *gin.Context) {
 		return
 	}
 
-	var input struct {
-		Date string `json:"date" binding:"required"`
-	}
+	var input model.FreeTimeInputDoc
 	if err := c.ShouldBindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if input.Date == "" {
+		NewErrorResponse(c, http.StatusBadRequest, "date is required")
 		return
 	}
 
-	date, err := time.Parse("2006-01-02", input.Date)
+	date, err := parseCalendarDate(input.Date, input.Timezone)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
+		NewErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	slots, err := h.services.Event.GetFreeTime(userID, date)
 	if err != nil {
-		NewErrorResponse(c, http.StatusInternalServerError, "failed to compute free time: "+err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"freeSlots": slots})
@@ -123,14 +101,14 @@ func (h *Handler) addEvent(c *gin.Context) {
 
 	var input model.Event
 	if err := c.BindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	input.UserID = userID
 
 	eventID, err := h.services.Event.CreateEvent(input)
 	if err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"eventId": eventID})
@@ -162,14 +140,14 @@ func (h *Handler) updateEvent(c *gin.Context) {
 
 	var input model.Event
 	if err := c.BindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	input.ID = eventID
 	input.UserID = userID
 
 	if err := h.services.Event.UpdateEvent(userID, input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "event updated"})
@@ -198,7 +176,7 @@ func (h *Handler) deleteEvent(c *gin.Context) {
 	}
 
 	if err := h.services.Event.DeleteEvent(userID, eventID); err != nil {
-		NewErrorResponse(c, http.StatusForbidden, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "event deleted"})

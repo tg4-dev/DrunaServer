@@ -36,7 +36,9 @@ go run cmd/main.go
 | `JWT_SECRET` | Yes | JWT HMAC signing key |
 | `BOT_TOKEN` | Telegram auth | Telegram bot token for initData HMAC |
 | `TELEGRAM_AUTH_TTL_HOURS` | No | Max Telegram initData age in hours (default `24`) |
-| `METRICS_ENABLED` | No | Expose `/metrics` (default `true`; disable in prod or protect via proxy) |
+| `METRICS_ENABLED` | No | Expose `/metrics` (default `false`) |
+| `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
+| `TRUSTED_PROXIES` | No | Comma-separated proxy CIDRs. Empty means do not trust forwarded headers |
 | `CORS_ORIGINS` | No | Comma-separated allowed origins (default `*`) |
 | `DATABASE_URL` | Docker | Auto-migrations in `docker-entrypoint.sh` |
 | `TEST_DATABASE_URL` | Integration tests | Postgres DSN for `tests/integration` |
@@ -62,15 +64,15 @@ Do not return raw `gin.H{"error": ...}` in new code.
 
 ### Auth
 
-- Access tokens (`token_type=access`) — required for `/api/*` middleware
-- Refresh tokens (`token_type=refresh`) — only for `POST /auth/renew-token`
-- Refresh rotation: old refresh JTI stored in `revoked_tokens` table
+- Access tokens (`token_type=access`, 15 minutes) — required for `/api/*` middleware
+- Refresh tokens (`token_type=refresh`, 7 days) — `POST /auth/renew-token` and `POST /auth/logout`
+- Refresh rotation claims the old JTI. Reuse revokes the token family (`revoked_token_families`)
 - Sign-in/sign-up body: `password` (plaintext); legacy `passwordHash` still accepted; DB column remains `password_hash`
 - User ID from JWT middleware (`userCtx`); never trust query/body for identity
 
 ### Rate limiting
 
-`/auth/*` routes: 30 requests/minute per IP.
+`/auth/*` routes: 30 requests/minute per IP. Search and free-time: 60 requests/minute per user.
 
 ## Swagger
 
@@ -132,13 +134,17 @@ Recent additions:
 - `20250617000003` — `revoked_tokens` table + performance indexes
 - `20250617000004` — `notification_outbox` table for companion bot hooks
 - `20250617000005` — nullable `events.group_id` (FK to `groups`) + partial index for group events
+- `20250617000006` — refresh token `family_id` and `revoked_token_families`
+- `20250617000007` — unordered unique pair on `friends`
+- `20250617000008` — event and group times as `timestamptz`
 
 If a database was migrated with the old timestamp `20250619011729_migration_init`, update `schema_migrations` manually or recreate the dev DB before applying `20250617000001`.
 
 ## Observability
 
 - `GET /ping/` — health + DB ping (`503` if DB down, `status: "degraded"`)
-- `GET /metrics` — Prometheus (when `METRICS_ENABLED=true`)
+- `GET /metrics` — Prometheus (only when `METRICS_ENABLED=true`)
+- `notification_outbox` is read by an external bot, which sets `delivered_at`. This server only enqueues rows.
 - Request ID: `X-Request-ID` header (auto-generated if missing)
 - Access logs: JSON lines with `request_id`, method, path, status, duration
 

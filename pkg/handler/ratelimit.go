@@ -45,9 +45,18 @@ func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 }
 
 func (rl *RateLimiter) Middleware() gin.HandlerFunc {
+	return rl.MiddlewareKey(func(c *gin.Context) string {
+		return c.ClientIP()
+	})
+}
+
+func (rl *RateLimiter) MiddlewareKey(keyFn func(*gin.Context) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		if !rl.getLimiter(ip).Allow() {
+		key := keyFn(c)
+		if key == "" {
+			key = c.ClientIP()
+		}
+		if !rl.getLimiter(key).Allow() {
 			NewErrorResponse(c, http.StatusTooManyRequests, "rate limit exceeded")
 			return
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -278,5 +279,69 @@ func TestUserProfile(t *testing.T) {
 	updated := decodeData[model.UserProfile](t, patchRec)
 	if updated.Name != "Updated Name" || updated.AvatarURL != "https://example.com/avatar.png" {
 		t.Fatalf("unexpected profile update: %+v", updated)
+	}
+}
+
+func TestFriendCounterRequestAndResendAfterReject(t *testing.T) {
+	router, cleanup := setupIntegration(t)
+	defer cleanup()
+
+	userA := fmt.Sprintf("pair_a_%d", time.Now().UnixNano())
+	userB := fmt.Sprintf("pair_b_%d", time.Now().UnixNano())
+	accessA, _ := signUpAndSignIn(t, router, userA, "secret12345")
+	accessB, _ := signUpAndSignIn(t, router, userB, "secret12345")
+
+	first := doJSON(t, router, http.MethodPost, "/api/v1/friends/request", map[string]string{"username": userB}, accessA)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first request: %d %s", first.Code, first.Body.String())
+	}
+	counter := doJSON(t, router, http.MethodPost, "/api/v1/friends/request", map[string]string{"username": userA}, accessB)
+	if counter.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for counter request, got %d %s", counter.Code, counter.Body.String())
+	}
+
+	reject := doJSON(t, router, http.MethodPost, "/api/v1/friends/reject", map[string]string{"username": userA}, accessB)
+	if reject.Code != http.StatusOK {
+		t.Fatalf("reject: %d %s", reject.Code, reject.Body.String())
+	}
+	again := doJSON(t, router, http.MethodPost, "/api/v1/friends/request", map[string]string{"username": userB}, accessA)
+	if again.Code != http.StatusOK {
+		t.Fatalf("resend after reject: %d %s", again.Code, again.Body.String())
+	}
+}
+
+func TestParallelOverlappingEvents(t *testing.T) {
+	router, cleanup := setupIntegration(t)
+	defer cleanup()
+
+	username := fmt.Sprintf("race_%d", time.Now().UnixNano())
+	access, _ := signUpAndSignIn(t, router, username, "secret12345")
+
+	body := map[string]string{
+		"title":     "Race",
+		"startTime": "2026-07-01T10:00:00Z",
+		"endTime":   "2026-07-01T11:00:00Z",
+		"type":      "work",
+	}
+	var wg sync.WaitGroup
+	codes := make([]int, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			rec := doJSON(t, router, http.MethodPost, "/api/v1/events/", body, access)
+			codes[i] = rec.Code
+		}(i)
+	}
+	wg.Wait()
+
+	okCount := 0
+	for _, code := range codes {
+		if code == http.StatusOK {
+			okCount++
+		}
+	}
+	if okCount != 1 {
+		t.Fatalf("expected exactly one overlapping create to succeed, got %v", codes)
 	}
 }

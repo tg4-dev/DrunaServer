@@ -1,7 +1,9 @@
 package repository
 
 import (
-	"fmt"
+	"net"
+	"net/url"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -23,17 +25,29 @@ type Config struct {
 }
 
 func NewPostgresDB(cfg Config) (*sqlx.DB, error) {
-	db, err := sqlx.Open("postgres", fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.DBName, cfg.SSLMode))
+	dsnURL := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(cfg.Username, cfg.Password),
+		Host:   net.JoinHostPort(cfg.Host, cfg.Port),
+		Path:   "/" + cfg.DBName,
+	}
+	query := url.Values{}
+	query.Set("sslmode", cfg.SSLMode)
+	dsnURL.RawQuery = query.Encode()
+	dsn := dsnURL.String()
+
+	db, err := sqlx.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.Ping()
-	if err != nil {
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	if err = db.Ping(); err != nil {
 		return nil, err
 	}
 
 	return db, nil
-
 }

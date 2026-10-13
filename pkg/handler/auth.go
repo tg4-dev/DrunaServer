@@ -10,40 +10,56 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type signUpInput struct {
+	Name         string `json:"name" binding:"required"`
+	Username     string `json:"username" binding:"required"`
+	Email        string `json:"email" binding:"required"`
+	Password     string `json:"password"`
+	PasswordHash string `json:"passwordHash"`
+}
+
+func (in signUpInput) password() string {
+	if in.Password != "" {
+		return in.Password
+	}
+	return in.PasswordHash
+}
+
 // signUp godoc
 // @Summary Register a new user
 // @Tags auth
 // @Accept json
 // @Produce json
-// @Param input body model.User true "Sign up payload"
+// @Param input body model.SignUpDoc true "Sign up payload"
 // @Success 200 {object} model.APIResponse
 // @Failure 400 {object} model.APIResponse
+// @Failure 409 {object} model.APIResponse
 // @Failure 500 {object} model.APIResponse
 // @Router /auth/sign-up [post]
 func (h *Handler) signUp(c *gin.Context) {
-	var input struct {
-		model.User
-		LegacyPasswordHash string `json:"passwordHash"` // legacy alias
-	}
+	var input signUpInput
 	if err := c.BindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if input.Password == "" {
-		input.Password = input.LegacyPasswordHash
-	}
-	if input.Password == "" {
+	if input.password() == "" {
 		NewErrorResponse(c, http.StatusBadRequest, "password is required")
 		return
 	}
 
-	id, err := h.services.Authorization.CreateUser(input.User)
+	user := model.User{
+		Name:     input.Name,
+		Username: input.Username,
+		Email:    input.Email,
+		Password: input.password(),
+	}
+	id, err := h.services.Authorization.CreateUser(user)
 	if err != nil {
-		if errors.Is(err, service.ErrPasswordTooShort) {
+		if errors.Is(err, service.ErrPasswordTooShort) || errors.Is(err, service.ErrPasswordTooLong) {
 			NewErrorResponse(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		NewErrorResponse(c, http.StatusInternalServerError, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 
@@ -80,7 +96,7 @@ func (in signInInput) password() string {
 func (h *Handler) signIn(c *gin.Context) {
 	var input signInInput
 	if err := c.BindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if input.password() == "" {
@@ -90,7 +106,7 @@ func (h *Handler) signIn(c *gin.Context) {
 
 	accessToken, refreshToken, err := h.services.Authorization.GenerateAccessRefreshToken(input.Username, input.password())
 	if err != nil {
-		NewErrorResponse(c, http.StatusUnauthorized, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 
@@ -110,31 +126,14 @@ func (h *Handler) signIn(c *gin.Context) {
 // @Failure 401 {object} model.APIResponse
 // @Router /auth/renew-token [post]
 func (h *Handler) renewToken(c *gin.Context) {
-	var input renewTokenInput
-	_ = c.ShouldBindJSON(&input)
-
-	token := input.RefreshToken
-	if token == "" {
-		header := c.GetHeader(authorizationHeader)
-		if header == "" {
-			NewErrorResponse(c, http.StatusUnauthorized, "empty auth header or refreshToken in body")
-			return
-		}
-		headerParts := strings.Split(header, " ")
-		if len(headerParts) != 2 || headerParts[0] != "Bearer" {
-			NewErrorResponse(c, http.StatusUnauthorized, "invalid auth header")
-			return
-		}
-		token = headerParts[1]
-	}
-	if token == "" {
-		NewErrorResponse(c, http.StatusUnauthorized, "token is empty")
+	token, ok := refreshTokenFromRequest(c)
+	if !ok {
 		return
 	}
 
 	accessToken, refreshToken, err := h.services.Authorization.RenewToken(token)
 	if err != nil {
-		NewErrorResponse(c, http.StatusUnauthorized, err.Error())
+		writeServiceError(c, err)
 		return
 	}
 
@@ -144,8 +143,54 @@ func (h *Handler) renewToken(c *gin.Context) {
 	})
 }
 
+// logout godoc
+// @Summary Revoke a refresh-token family
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param input body model.RenewTokenDoc false "Refresh token in body or Authorization header"
+// @Success 200 {object} model.APIResponse
+// @Failure 401 {object} model.APIResponse
+// @Router /auth/logout [post]
+func (h *Handler) logout(c *gin.Context) {
+	token, ok := refreshTokenFromRequest(c)
+	if !ok {
+		return
+	}
+	if err := h.services.Authorization.Logout(token); err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"message": "logged out"})
+}
+
+func refreshTokenFromRequest(c *gin.Context) (string, bool) {
+	var input renewTokenInput
+	_ = c.ShouldBindJSON(&input)
+
+	token := input.RefreshToken
+	if token == "" {
+		header := c.GetHeader(authorizationHeader)
+		if header == "" {
+			NewErrorResponse(c, http.StatusUnauthorized, "empty auth header or refreshToken in body")
+			return "", false
+		}
+		headerParts := strings.Split(header, " ")
+		if len(headerParts) != 2 || headerParts[0] != "Bearer" {
+			NewErrorResponse(c, http.StatusUnauthorized, "invalid auth header")
+			return "", false
+		}
+		token = headerParts[1]
+	}
+	if token == "" {
+		NewErrorResponse(c, http.StatusUnauthorized, "token is empty")
+		return "", false
+	}
+	return token, true
+}
+
 // telegramAuth godoc
-// @Summary Authenticate via Telegram WebApp initData
+// @Summary Authenticate via Telegram Mini App initData
 // @Tags auth
 // @Accept json
 // @Produce json
@@ -165,7 +210,44 @@ func (h *Handler) telegramAuth(c *gin.Context) {
 
 	accessToken, refreshToken, err := h.services.Authorization.LoginWithTelegramInitData(input.InitData)
 	if err != nil {
-		NewErrorResponse(c, http.StatusUnauthorized, "telegram auth failed: "+err.Error())
+		writeServiceError(c, err)
+		return
+	}
+
+	Success(c, http.StatusOK, gin.H{
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+	})
+}
+
+// telegramWidgetAuth godoc
+// @Summary Authenticate via Telegram Login Widget
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param input body model.TelegramWidgetDoc true "Telegram Login Widget fields"
+// @Success 200 {object} model.APIResponse
+// @Failure 400 {object} model.APIResponse
+// @Failure 401 {object} model.APIResponse
+// @Router /auth/telegram/widget [post]
+func (h *Handler) telegramWidgetAuth(c *gin.Context) {
+	var input model.TelegramWidgetDoc
+	if err := c.BindJSON(&input); err != nil {
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	accessToken, refreshToken, err := h.services.Authorization.LoginWithTelegramWidget(service.TelegramWidgetData{
+		ID:        input.ID,
+		FirstName: input.FirstName,
+		LastName:  input.LastName,
+		Username:  input.Username,
+		PhotoURL:  input.PhotoURL,
+		AuthDate:  input.AuthDate,
+		Hash:      input.Hash,
+	})
+	if err != nil {
+		writeServiceError(c, err)
 		return
 	}
 

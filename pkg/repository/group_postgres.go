@@ -27,16 +27,16 @@ func (r *GroupPostgres) CreateGroup(input model.Group) (int, error) {
 
 	var id int
 	query := fmt.Sprintf(
-		"INSERT INTO %s (owner_id, name, confirmed_time) VALUES ($1, $2, $3) RETURNING id",
+		"INSERT INTO %s (owner_id, name, confirmed_time) VALUES ($1, $2, NULL) RETURNING id",
 		groupTable,
 	)
-	if err := tx.QueryRow(query, input.OwnerID, input.Name, time.Now()).Scan(&id); err != nil {
-		return 0, err
+	if err := tx.QueryRow(query, input.OwnerID, input.Name).Scan(&id); err != nil {
+		return 0, MapPGError(err)
 	}
 
-	memberQuery := "INSERT INTO group_members (group_id, user_id, confirmed_time) VALUES ($1, $2, $3)"
-	if _, err := tx.Exec(memberQuery, id, input.OwnerID, time.Now()); err != nil {
-		return 0, err
+	memberQuery := "INSERT INTO group_members (group_id, user_id, confirmed_time) VALUES ($1, $2, NULL)"
+	if _, err := tx.Exec(memberQuery, id, input.OwnerID); err != nil {
+		return 0, MapPGError(err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -72,7 +72,7 @@ func (r *GroupPostgres) GetGroupDetails(groupID, userID int) (model.GroupDetails
 	var access int
 	if err := r.db.Get(&access, accessQuery, groupID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return details, errors.New("group not found or access denied")
+			return details, ErrNotFound
 		}
 		return details, err
 	}
@@ -103,17 +103,19 @@ func (r *GroupPostgres) AddGroupMember(groupID, ownerID, memberID int) error {
 	ownerQuery := fmt.Sprintf("SELECT owner_id FROM %s WHERE id = $1", groupTable)
 	if err := r.db.Get(&owner, ownerQuery, groupID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("group not found")
+			return ErrNotFound
 		}
 		return err
 	}
 	if owner != ownerID {
-		return errors.New("only group owner can add members")
+		return ErrNotOwner
 	}
 
-	query := `INSERT INTO group_members (group_id, user_id, confirmed_time) VALUES ($1, $2, $3)`
-	_, err := r.db.Exec(query, groupID, memberID, time.Now())
-	return err
+	query := `INSERT INTO group_members (group_id, user_id, confirmed_time) VALUES ($1, $2, NULL)`
+	if _, err := r.db.Exec(query, groupID, memberID); err != nil {
+		return MapPGError(err)
+	}
+	return r.syncGroupConfirmedTime(groupID)
 }
 
 func (r *GroupPostgres) IsGroupMember(groupID, userID int) (bool, error) {
@@ -139,12 +141,12 @@ func (r *GroupPostgres) DeleteGroup(groupID, ownerID int) error {
 	var owner int
 	if err := r.db.Get(&owner, fmt.Sprintf("SELECT owner_id FROM %s WHERE id = $1", groupTable), groupID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("group not found")
+			return ErrNotFound
 		}
 		return err
 	}
 	if owner != ownerID {
-		return errors.New("only group owner can delete the group")
+		return ErrNotOwner
 	}
 	_, err := r.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE id = $1", groupTable), groupID)
 	return err
@@ -154,12 +156,12 @@ func (r *GroupPostgres) LeaveGroup(groupID, userID int) error {
 	var owner int
 	if err := r.db.Get(&owner, fmt.Sprintf("SELECT owner_id FROM %s WHERE id = $1", groupTable), groupID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("group not found")
+			return ErrNotFound
 		}
 		return err
 	}
 	if owner == userID {
-		return errors.New("group owner cannot leave; delete the group instead")
+		return ErrOwnerCannotLeave
 	}
 	result, err := r.db.Exec(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, groupID, userID)
 	if err != nil {
@@ -170,9 +172,9 @@ func (r *GroupPostgres) LeaveGroup(groupID, userID int) error {
 		return err
 	}
 	if rows == 0 {
-		return errors.New("you are not a member of this group")
+		return ErrNotMember
 	}
-	return nil
+	return r.syncGroupConfirmedTime(groupID)
 }
 
 func (r *GroupPostgres) ConfirmMemberTime(groupID, userID int, confirmedTime time.Time) error {
@@ -181,9 +183,36 @@ func (r *GroupPostgres) ConfirmMemberTime(groupID, userID int, confirmedTime tim
 		return err
 	}
 	if !isMember {
-		return errors.New("you are not a member of this group")
+		return ErrNotMember
 	}
-	_, err = r.db.Exec(`UPDATE group_members SET confirmed_time = $1 WHERE group_id = $2 AND user_id = $3`,
-		confirmedTime, groupID, userID)
+	if _, err = r.db.Exec(`UPDATE group_members SET confirmed_time = $1 WHERE group_id = $2 AND user_id = $3`,
+		confirmedTime, groupID, userID); err != nil {
+		return err
+	}
+	return r.syncGroupConfirmedTime(groupID)
+}
+
+func (r *GroupPostgres) syncGroupConfirmedTime(groupID int) error {
+	var row struct {
+		Total     int        `db:"total"`
+		Confirmed int        `db:"confirmed"`
+		MinTime   *time.Time `db:"min_time"`
+		MaxTime   *time.Time `db:"max_time"`
+	}
+	query := `
+		SELECT COUNT(*) AS total,
+		       COUNT(confirmed_time) AS confirmed,
+		       MIN(confirmed_time) AS min_time,
+		       MAX(confirmed_time) AS max_time
+		FROM group_members
+		WHERE group_id = $1`
+	if err := r.db.Get(&row, query, groupID); err != nil {
+		return err
+	}
+	if row.Total > 0 && row.Total == row.Confirmed && row.MinTime != nil && row.MaxTime != nil && row.MinTime.Equal(*row.MaxTime) {
+		_, err := r.db.Exec(`UPDATE groups SET confirmed_time = $1 WHERE id = $2`, row.MinTime, groupID)
+		return err
+	}
+	_, err := r.db.Exec(`UPDATE groups SET confirmed_time = NULL WHERE id = $1`, groupID)
 	return err
 }

@@ -19,26 +19,56 @@ func NewEventPostgres(db *sqlx.DB) *EventPostgres {
 }
 
 func (r *EventPostgres) CreateEvent(event model.Event) (int, error) {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := lockScope(tx, fmt.Sprintf("user:%d", event.UserID)); err != nil {
+		return 0, err
+	}
+	overlap, err := overlapping(tx, true, event.UserID, event.StartTime, event.EndTime, 0)
+	if err != nil {
+		return 0, err
+	}
+	if overlap {
+		return 0, ErrOverlap
+	}
+
 	var id int
 	query := fmt.Sprintf("INSERT INTO %s (user_id, start_time, end_time, title, type) VALUES ($1, $2, $3, $4, $5) RETURNING id", eventsTable)
-
-	row := r.db.QueryRow(query,
-		event.UserID,
-		event.StartTime,
-		event.EndTime,
-		event.Title,
-		event.Type)
-	if err := row.Scan(&id); err != nil {
+	if err := tx.QueryRow(query, event.UserID, event.StartTime, event.EndTime, event.Title, event.Type).Scan(&id); err != nil {
+		return 0, MapPGError(err)
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return id, nil
 }
 
 func (r *EventPostgres) UpdateEvent(userID int, event model.Event) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := lockScope(tx, fmt.Sprintf("user:%d", userID)); err != nil {
+		return err
+	}
+	overlap, err := overlapping(tx, true, userID, event.StartTime, event.EndTime, event.ID)
+	if err != nil {
+		return err
+	}
+	if overlap {
+		return ErrOverlap
+	}
+
 	query := fmt.Sprintf(`
 		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4
-		WHERE id = $5 AND user_id = $6`, eventsTable)
-	result, err := r.db.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, event.ID, userID)
+		WHERE id = $5 AND user_id = $6 AND group_id IS NULL`, eventsTable)
+	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, event.ID, userID)
 	if err != nil {
 		return err
 	}
@@ -47,13 +77,13 @@ func (r *EventPostgres) UpdateEvent(userID int, event model.Event) error {
 		return err
 	}
 	if rows == 0 {
-		return errors.New("event not found or you are not the owner")
+		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *EventPostgres) DeleteEvent(userID, eventID int) error {
-	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1 AND user_id = $2", eventsTable)
+	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1 AND user_id = $2 AND group_id IS NULL", eventsTable)
 	result, err := r.db.Exec(query, eventID, userID)
 	if err != nil {
 		return err
@@ -65,7 +95,7 @@ func (r *EventPostgres) DeleteEvent(userID, eventID int) error {
 	}
 
 	if rowsAffected == 0 {
-		return errors.New("event not found or you are not the owner")
+		return ErrNotFound
 	}
 	return nil
 }
@@ -220,27 +250,59 @@ func (r *EventPostgres) GetBusyEventsForUsers(userIDs []int, dateFrom, dateTo ti
 }
 
 func (r *EventPostgres) CreateGroupEvent(event model.Event) (int, error) {
+	if event.GroupID == nil {
+		return 0, errors.New("group id is required")
+	}
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := lockScope(tx, fmt.Sprintf("group:%d", *event.GroupID)); err != nil {
+		return 0, err
+	}
+	overlap, err := overlapping(tx, false, *event.GroupID, event.StartTime, event.EndTime, 0)
+	if err != nil {
+		return 0, err
+	}
+	if overlap {
+		return 0, ErrOverlap
+	}
+
 	var id int
 	query := fmt.Sprintf("INSERT INTO %s (user_id, group_id, start_time, end_time, title, type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", eventsTable)
-
-	row := r.db.QueryRow(query,
-		event.UserID,
-		event.GroupID,
-		event.StartTime,
-		event.EndTime,
-		event.Title,
-		event.Type)
-	if err := row.Scan(&id); err != nil {
+	if err := tx.QueryRow(query, event.UserID, event.GroupID, event.StartTime, event.EndTime, event.Title, event.Type).Scan(&id); err != nil {
+		return 0, MapPGError(err)
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return id, nil
 }
 
 func (r *EventPostgres) UpdateGroupEvent(groupID, eventID int, event model.Event) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := lockScope(tx, fmt.Sprintf("group:%d", groupID)); err != nil {
+		return err
+	}
+	overlap, err := overlapping(tx, false, groupID, event.StartTime, event.EndTime, eventID)
+	if err != nil {
+		return err
+	}
+	if overlap {
+		return ErrOverlap
+	}
+
 	query := fmt.Sprintf(`
 		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4
 		WHERE id = $5 AND group_id = $6`, eventsTable)
-	result, err := r.db.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, eventID, groupID)
+	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, eventID, groupID)
 	if err != nil {
 		return err
 	}
@@ -249,9 +311,9 @@ func (r *EventPostgres) UpdateGroupEvent(groupID, eventID int, event model.Event
 		return err
 	}
 	if rows == 0 {
-		return errors.New("group event not found")
+		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *EventPostgres) DeleteGroupEvent(groupID, eventID int) error {
@@ -265,7 +327,7 @@ func (r *EventPostgres) DeleteGroupEvent(groupID, eventID int) error {
 		return err
 	}
 	if rows == 0 {
-		return errors.New("group event not found")
+		return ErrNotFound
 	}
 	return nil
 }
@@ -274,10 +336,7 @@ func (r *EventPostgres) GetGroupEventByID(groupID, eventID int) (model.Event, er
 	var event model.Event
 	query := fmt.Sprintf("SELECT id, user_id, group_id, title, start_time, end_time, type FROM %s WHERE id = $1 AND group_id = $2", eventsTable)
 	if err := r.db.Get(&event, query, eventID, groupID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return event, errors.New("group event not found")
-		}
-		return event, err
+		return event, MapPGError(err)
 	}
 	return event, nil
 }
@@ -359,6 +418,42 @@ func (r *EventPostgres) HasOverlappingGroupEvent(groupID int, start, end time.Ti
 		LIMIT 1`, eventsTable)
 	var exists int
 	err := r.db.Get(&exists, query, groupID, excludeID, start, end)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func lockScope(tx *sqlx.Tx, scope string) error {
+	_, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, scope)
+	return err
+}
+
+func overlapping(tx *sqlx.Tx, personal bool, ownerID int, start, end time.Time, excludeID int) (bool, error) {
+	var query string
+	if personal {
+		query = fmt.Sprintf(`
+			SELECT 1 FROM %s
+			WHERE user_id = $1
+			  AND group_id IS NULL
+			  AND id <> $2
+			  AND start_time < $4
+			  AND end_time > $3
+			LIMIT 1`, eventsTable)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT 1 FROM %s
+			WHERE group_id = $1
+			  AND id <> $2
+			  AND start_time < $4
+			  AND end_time > $3
+			LIMIT 1`, eventsTable)
+	}
+	var exists int
+	err := tx.Get(&exists, query, ownerID, excludeID, start, end)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

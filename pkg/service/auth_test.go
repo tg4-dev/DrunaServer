@@ -2,6 +2,7 @@ package service
 
 import (
 	"druna_server/pkg/model"
+	"druna_server/pkg/repository"
 	"errors"
 	"os"
 	"testing"
@@ -21,13 +22,13 @@ func (m *mockAuthRepo) CreateUser(user model.User) (int, error) {
 func (m *mockAuthRepo) GetUserByUsername(username string) (model.User, error) {
 	user, ok := m.users[username]
 	if !ok {
-		return model.User{}, os.ErrNotExist
+		return model.User{}, repository.ErrNotFound
 	}
 	return user, nil
 }
 
 func (m *mockAuthRepo) GetUserByTelegramID(telegramID int64) (model.User, error) {
-	return model.User{}, os.ErrNotExist
+	return model.User{}, repository.ErrNotFound
 }
 
 func (m *mockAuthRepo) GetUserByID(userID int) (model.User, error) {
@@ -36,7 +37,7 @@ func (m *mockAuthRepo) GetUserByID(userID int) (model.User, error) {
 			return user, nil
 		}
 	}
-	return model.User{}, os.ErrNotExist
+	return model.User{}, repository.ErrNotFound
 }
 
 func (m *mockAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) error {
@@ -52,7 +53,7 @@ func (m *mockAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) err
 			return nil
 		}
 	}
-	return os.ErrNotExist
+	return repository.ErrNotFound
 }
 
 func (m *mockAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error) {
@@ -60,19 +61,31 @@ func (m *mockAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error) {
 }
 
 type mockTokenRepo struct {
-	revoked map[string]bool
+	claimed  map[string]string
+	families map[string]bool
 }
 
-func (m *mockTokenRepo) RevokeToken(jti string, expiresAt time.Time) error {
-	if m.revoked == nil {
-		m.revoked = map[string]bool{}
+func (m *mockTokenRepo) ClaimRefreshToken(jti, familyID string, expiresAt time.Time) (bool, error) {
+	if m.claimed == nil {
+		m.claimed = map[string]string{}
 	}
-	m.revoked[jti] = true
+	if _, ok := m.claimed[jti]; ok {
+		return false, nil
+	}
+	m.claimed[jti] = familyID
+	return true, nil
+}
+
+func (m *mockTokenRepo) RevokeFamily(familyID string, expiresAt time.Time) error {
+	if m.families == nil {
+		m.families = map[string]bool{}
+	}
+	m.families[familyID] = true
 	return nil
 }
 
-func (m *mockTokenRepo) IsTokenRevoked(jti string) (bool, error) {
-	return m.revoked != nil && m.revoked[jti], nil
+func (m *mockTokenRepo) IsFamilyRevoked(familyID string) (bool, error) {
+	return m.families != nil && m.families[familyID], nil
 }
 
 func (m *mockTokenRepo) Ping() error { return nil }
@@ -161,5 +174,87 @@ func TestRenewTokenRotatesRefresh(t *testing.T) {
 	_, _, err = svc.RenewToken(refresh)
 	if err == nil {
 		t.Fatal("old refresh token should be revoked")
+	}
+}
+
+func TestRefreshReuseRevokesFamily(t *testing.T) {
+	hash, _ := hashPassword("password")
+	repo := &mockAuthRepo{
+		users: map[string]model.User{
+			"cara": {ID: 7, Username: "cara", PasswordHash: hash},
+		},
+	}
+	tokenRepo := &mockTokenRepo{}
+	svc := NewAuthService(repo, tokenRepo)
+
+	_, refresh, err := svc.GenerateAccessRefreshToken("cara", "password")
+	if err != nil {
+		t.Fatalf("login failed: %v", err)
+	}
+	_, rotated, err := svc.RenewToken(refresh)
+	if err != nil {
+		t.Fatalf("renew failed: %v", err)
+	}
+	if _, _, err := svc.RenewToken(refresh); err == nil {
+		t.Fatal("expected reused refresh to fail")
+	}
+	if _, _, err := svc.RenewToken(rotated); err == nil {
+		t.Fatal("expected family revocation to reject the rotated refresh token")
+	}
+}
+
+func TestSignInHidesUnknownUser(t *testing.T) {
+	hash, _ := hashPassword("password")
+	repo := &mockAuthRepo{
+		users: map[string]model.User{
+			"dana": {ID: 3, Username: "dana", PasswordHash: hash},
+		},
+	}
+	svc := NewAuthService(repo, &mockTokenRepo{})
+
+	_, _, missingErr := svc.GenerateAccessRefreshToken("nobody", "password")
+	_, _, badPassErr := svc.GenerateAccessRefreshToken("dana", "wrong-password")
+	if !errors.Is(missingErr, ErrInvalidCredentials) || !errors.Is(badPassErr, ErrInvalidCredentials) {
+		t.Fatalf("expected identical invalid credentials errors, missing=%v bad=%v", missingErr, badPassErr)
+	}
+	if missingErr.Error() != badPassErr.Error() {
+		t.Fatalf("error text differs: %q vs %q", missingErr.Error(), badPassErr.Error())
+	}
+}
+
+func TestCreateUserIgnoresTelegramID(t *testing.T) {
+	repo := &mockAuthRepo{users: map[string]model.User{}}
+	svc := NewAuthService(repo, &mockTokenRepo{})
+	tg := int64(99)
+	_, err := svc.CreateUser(model.User{
+		Name:       "Eve",
+		Username:   "eve",
+		Email:      "eve@test.local",
+		Password:   "secret12345",
+		TelegramID: &tg,
+		AvatarURL:  "https://example.com/a.png",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	stored := repo.users["eve"]
+	if stored.TelegramID != nil {
+		t.Fatalf("telegram id must not be stored on password signup: %v", *stored.TelegramID)
+	}
+	if stored.AvatarURL != "" {
+		t.Fatalf("avatar must not be stored on password signup: %s", stored.AvatarURL)
+	}
+}
+
+func TestCreateUserRejectsLongPassword(t *testing.T) {
+	svc := NewAuthService(&mockAuthRepo{users: map[string]model.User{}}, &mockTokenRepo{})
+	_, err := svc.CreateUser(model.User{
+		Name:     "Long",
+		Username: "longpw",
+		Email:    "long@test.local",
+		Password: string(make([]byte, 73)),
+	})
+	if !errors.Is(err, ErrPasswordTooLong) {
+		t.Fatalf("expected ErrPasswordTooLong, got %v", err)
 	}
 }
