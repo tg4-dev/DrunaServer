@@ -79,7 +79,7 @@ definitions:
     type: object
   model.SignInDoc:
     properties:
-      passwordHash:
+      password:
         type: string
       username:
         type: string
@@ -107,8 +107,6 @@ definitions:
       name:
         type: string
       password:
-        type: string
-      passwordHash:
         type: string
       telegramID:
         type: integer

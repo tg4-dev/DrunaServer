@@ -6,7 +6,7 @@ type User struct {
 	Username     string `json:"username" binding:"required" db:"username"`
 	Email        string `json:"email" binding:"required" db:"email"`
 	Password     string `json:"password"`
-	PasswordHash string `json:"passwordHash" db:"password_hash"`
+	PasswordHash string `json:"-" db:"password_hash"`
 	AvatarURL    string `json:"avatarURL" db:"avatar_url"`
 	TelegramID   *int64 `json:"telegramID,omitempty" db:"telegram_id"`
 }

@@ -3,15 +3,15 @@ package model
 import "time"
 
 type SignUpDoc struct {
-	Name         string `json:"name"`
-	Username     string `json:"username"`
-	Email        string `json:"email"`
-	PasswordHash string `json:"passwordHash"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type SignInDoc struct {
-	Username     string `json:"username"`
-	PasswordHash string `json:"passwordHash"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type RenewTokenDoc struct {

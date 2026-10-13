@@ -63,10 +63,7 @@ func NewAuthService(repo repository.Authorization, tokenRepo repository.Token) *
 }
 
 func (s *AuthService) CreateUser(user model.User) (int, error) {
-	password := user.PasswordHash
-	if password == "" {
-		password = user.Password
-	}
+	password := user.Password
 	if password == "" {
 		return 0, errors.New("password is required")
 	}
@@ -78,6 +75,7 @@ func (s *AuthService) CreateUser(user model.User) (int, error) {
 		return 0, err
 	}
 	user.PasswordHash = hash
+	user.Password = ""
 	return s.repo.CreateUser(user)
 }
 

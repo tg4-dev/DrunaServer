@@ -1686,7 +1686,7 @@
         "model.SignInDoc": {
             "type": "object",
             "properties": {
-                "passwordHash": {
+                "password": {
                     "type": "string"
                 },
                 "username": {
@@ -1734,9 +1734,6 @@
                     "type": "string"
                 },
                 "password": {
-                    "type": "string"
-                },
-                "passwordHash": {
                     "type": "string"
                 },
                 "telegramID": {

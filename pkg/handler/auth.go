@@ -21,20 +21,23 @@ import (
 // @Failure 500 {object} model.APIResponse
 // @Router /auth/sign-up [post]
 func (h *Handler) signUp(c *gin.Context) {
-	var input model.User
+	var input struct {
+		model.User
+		LegacyPasswordHash string `json:"passwordHash"` // legacy alias
+	}
 	if err := c.BindJSON(&input); err != nil {
 		NewErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if input.PasswordHash == "" && input.Password != "" {
-		input.PasswordHash = input.Password
+	if input.Password == "" {
+		input.Password = input.LegacyPasswordHash
 	}
-	if input.PasswordHash == "" && input.Password == "" {
+	if input.Password == "" {
 		NewErrorResponse(c, http.StatusBadRequest, "password is required")
 		return
 	}
 
-	id, err := h.services.Authorization.CreateUser(input)
+	id, err := h.services.Authorization.CreateUser(input.User)
 	if err != nil {
 		if errors.Is(err, service.ErrPasswordTooShort) {
 			NewErrorResponse(c, http.StatusBadRequest, err.Error())
@@ -81,7 +84,7 @@ func (h *Handler) signIn(c *gin.Context) {
 		return
 	}
 	if input.password() == "" {
-		NewErrorResponse(c, http.StatusBadRequest, "password or passwordHash is required")
+		NewErrorResponse(c, http.StatusBadRequest, "password is required")
 		return
 	}
 

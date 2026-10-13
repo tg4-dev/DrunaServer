@@ -149,7 +149,7 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
 }
 ```
 
-Password must be at least **8 characters**.
+Send plaintext `password` (min **8 characters**). Do not send a pre-hashed value.
 
 **Response `data`:** `{ "id": 1 }`
 
@@ -175,8 +175,7 @@ Sign-up does not return tokens — follow it with a sign-in call (or do both sil
 }
 ```
 
-(Legacy field `passwordHash` is still accepted in place of `password`, but new apps should send `password`.)
-
+For both sign-up and sign-in, the request field is `password`. Legacy `passwordHash` is still accepted, but new clients should send `password` only.
 ### Renew tokens
 
 `POST /auth/renew-token`
