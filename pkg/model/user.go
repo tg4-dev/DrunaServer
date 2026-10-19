@@ -8,5 +8,4 @@ type User struct {
 	Password     string `json:"-"`
 	PasswordHash string `json:"-" db:"password_hash"`
 	AvatarURL    string `json:"avatarURL" db:"avatar_url"`
-	TelegramID   *int64 `json:"telegramID,omitempty" db:"telegram_id"`
 }

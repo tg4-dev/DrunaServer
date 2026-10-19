@@ -99,33 +99,6 @@ definitions:
       username:
         type: string
     type: object
-  model.TelegramAuthDoc:
-    properties:
-      initData:
-        type: string
-    type: object
-  model.TelegramWidgetDoc:
-    properties:
-      auth_date:
-        type: integer
-      first_name:
-        type: string
-      hash:
-        type: string
-      id:
-        type: integer
-      last_name:
-        type: string
-      photo_url:
-        type: string
-      username:
-        type: string
-    required:
-    - auth_date
-    - first_name
-    - hash
-    - id
-    type: object
   model.UpdateProfileInput:
     properties:
       avatarURL:
@@ -1095,64 +1068,6 @@ paths:
           schema:
             $ref: '#/definitions/model.APIResponse'
       summary: Register a new user
-      tags:
-      - auth
-  /auth/telegram:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Telegram initData
-        in: body
-        name: input
-        required: true
-        schema:
-          $ref: '#/definitions/model.TelegramAuthDoc'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-      summary: Authenticate via Telegram Mini App initData
-      tags:
-      - auth
-  /auth/telegram/widget:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Telegram Login Widget fields
-        in: body
-        name: input
-        required: true
-        schema:
-          $ref: '#/definitions/model.TelegramWidgetDoc'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/model.APIResponse'
-      summary: Authenticate via Telegram Login Widget
       tags:
       - auth
   /ping/:

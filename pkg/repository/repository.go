@@ -11,7 +11,6 @@ import (
 type Authorization interface {
 	CreateUser(user model.User) (int, error)
 	GetUserByUsername(username string) (model.User, error)
-	GetUserByTelegramID(telegramID int64) (model.User, error)
 	GetUserByID(userID int) (model.User, error)
 	UpdateUserProfile(userID int, name, avatarURL string) error
 	SearchUsers(prefix string) ([]model.FriendInfo, error)

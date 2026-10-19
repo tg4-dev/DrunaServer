@@ -5,7 +5,7 @@ Contract for **native mobile clients** (iOS / Android — React Native, Flutter,
 Backend repo: [DrunaServer](https://github.com/TG4-Dev/DrunaServer)  
 Related docs: [README.md](../README.md) · [AGENTS.md](../AGENTS.md)
 
-> This guide is written for a standalone mobile app. There is no WebView, no Telegram Mini App SDK, and no browser origin involved. The app talks to the REST API directly over HTTPS and stores JWT tokens in the platform secure store.
+> This guide is written for a standalone mobile app. There is no WebView and no browser origin involved. The app talks to the REST API directly over HTTPS and stores JWT tokens in the platform secure store.
 
 ---
 
@@ -119,7 +119,7 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
 |--------|------|
 | `Content-Type: application/json` | All POST/PATCH bodies |
 | `Authorization: Bearer <accessToken>` | All `/api/v1/*` routes |
-| `X-Request-ID` | Optional; server echoes it back (or generates one). Useful for correlating client logs with server logs / bug reports |
+| `X-Request-ID` | Optional; up to 128 chars of `[A-Za-z0-9._-]`. Server echoes it back, or generates one if missing/invalid. Useful for correlating client logs with server logs / bug reports |
 
 ---
 
@@ -150,7 +150,7 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
 }
 ```
 
-Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. `telegramID` in the body is ignored. A taken username or email returns **409** `username or email already taken`. Unknown users and wrong passwords both return **401** `invalid credentials`.
+Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. A taken username or email returns **409** `username or email already taken`. Unknown users and wrong passwords both return **401** `invalid credentials`.
 
 **Response `data`:** `{ "id": 1 }`
 
@@ -209,37 +209,6 @@ Revokes the refresh-token family. The current access token stays valid until it 
 5. Explicit logout -> POST /auth/logout with the refresh token -> clear the secure store
 ```
 
-### Telegram login (optional)
-
-Two contracts, both checked with `BOT_TOKEN`:
-
-`POST /auth/telegram` — Telegram Mini App `initData` (`window.Telegram.WebApp.initData`). The secret is HMAC-SHA256 of the bot token with key `WebAppData`.
-
-```json
-{ "initData": "query_id=...&user=...&auth_date=...&hash=..." }
-```
-
-`POST /auth/telegram/widget` — Telegram Login Widget. The secret is SHA256 of the bot token. Send the widget fields flat:
-
-```json
-{
-  "id": 123456789,
-  "first_name": "Alice",
-  "last_name": "Doe",
-  "username": "alice",
-  "photo_url": "https://t.me/i/userpic/a.jpg",
-  "auth_date": 1710000000,
-  "hash": "..."
-}
-```
-
-- Both reject `auth_date` older than `TELEGRAM_AUTH_TTL_HOURS` (default **24h**) and more than one minute in the future.
-- On success the server auto-registers or logs in the user and returns `{ accessToken, refreshToken }`.
-- If the Telegram username or email is already taken, the account is created as `tg_<id>`.
-- Avatar URLs are stored only when they are `https`.
-
-Unless you specifically integrate Telegram login, **use `sign-up` / `sign-in` as the primary auth method.**
-
 ---
 
 ## Token storage & session lifecycle
@@ -278,12 +247,9 @@ Prefix: `/api/v1/users`. All routes require auth.
   "name": "Alice",
   "username": "alice",
   "email": "alice@example.com",
-  "avatarURL": "https://example.com/avatar.png",
-  "telegramID": 123456789
+  "avatarURL": "https://example.com/avatar.png"
 }
 ```
-
-`telegramID` is omitted for password-only accounts.
 
 ### Update profile
 
@@ -686,7 +652,7 @@ When a push pipeline is added later, the app will register its APNs/FCM device t
 
 ```bash
 cp configs/config.yaml.example configs/config.yaml
-cp .env.example .env   # set DB_PASSWORD, JWT_SECRET (BOT_TOKEN only if testing Telegram login)
+cp .env.example .env   # set DB_PASSWORD, JWT_SECRET
 go run cmd/main.go
 ```
 
@@ -724,7 +690,8 @@ curl -s http://localhost:8000/api/v1/events/ \
 
 - All responses use the `{ data, error }` envelope.
 - Use the `/api/v1/` prefix for every protected route.
-- Primary mobile auth is `POST /auth/sign-up` + `POST /auth/sign-in`; `POST /auth/telegram` is optional (Telegram integration only).
+- Auth is `POST /auth/sign-up` + `POST /auth/sign-in`. Telegram login (`POST /auth/telegram`, `/auth/telegram/widget`) and the profile `telegramID` field were removed.
+- List endpoints return `[]` (never `null`) when empty.
 - Access vs refresh tokens — only the access token is valid on API routes.
 - Refresh rotation — always save the new token pair after every renew.
 - Store tokens in the platform secure store (Keychain / Keystore), never in plaintext.

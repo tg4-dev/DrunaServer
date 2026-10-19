@@ -33,10 +33,6 @@ func (m *handlerAuthRepo) GetUserByUsername(username string) (model.User, error)
 	return user, nil
 }
 
-func (m *handlerAuthRepo) GetUserByTelegramID(telegramID int64) (model.User, error) {
-	return model.User{}, repository.ErrNotFound
-}
-
 func (m *handlerAuthRepo) GetUserByID(userID int) (model.User, error) {
 	for _, user := range m.users {
 		if user.ID == userID {

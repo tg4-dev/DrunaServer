@@ -52,8 +52,6 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		auth.POST("/sign-in", h.signIn)
 		auth.POST("/renew-token", h.renewToken)
 		auth.POST("/logout", h.logout)
-		auth.POST("/telegram", h.telegramAuth)
-		auth.POST("/telegram/widget", h.telegramWidgetAuth)
 	}
 
 	userLimiter := NewRateLimiter(60)

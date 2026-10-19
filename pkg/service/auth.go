@@ -3,7 +3,6 @@ package service
 import (
 	"druna_server/pkg/model"
 	"druna_server/pkg/repository"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -43,28 +42,9 @@ type tokenClaims struct {
 	FamilyID  string `json:"fid"`
 }
 
-type telegramUser struct {
-	ID        int64  `json:"id"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Username  string `json:"username"`
-	PhotoURL  string `json:"photo_url"`
-}
-
-type TelegramWidgetData struct {
-	ID        int64
-	FirstName string
-	LastName  string
-	Username  string
-	PhotoURL  string
-	AuthDate  int64
-	Hash      string
-}
-
 type AuthService struct {
 	repo       repository.Authorization
 	tokenRepo  repository.Token
-	botToken   string
 	signingKey []byte
 }
 
@@ -77,7 +57,6 @@ func NewAuthService(repo repository.Authorization, tokenRepo repository.Token) *
 	return &AuthService{
 		repo:       repo,
 		tokenRepo:  tokenRepo,
-		botToken:   os.Getenv("BOT_TOKEN"),
 		signingKey: []byte(secret),
 	}
 }
@@ -100,7 +79,6 @@ func (s *AuthService) CreateUser(user model.User) (int, error) {
 	user.PasswordHash = hash
 	user.Password = ""
 	user.ID = 0
-	user.TelegramID = nil
 	user.AvatarURL = ""
 	id, err := s.repo.CreateUser(user)
 	if errors.Is(err, repository.ErrDuplicate) {
@@ -224,133 +202,17 @@ func (s *AuthService) UpdateProfile(userID int, name, avatarURL string) (model.U
 }
 
 func userProfileFromUser(user model.User) model.UserProfile {
-	profile := model.UserProfile{
+	return model.UserProfile{
 		ID:        user.ID,
 		Name:      user.Name,
 		Username:  user.Username,
 		Email:     user.Email,
 		AvatarURL: user.AvatarURL,
 	}
-	if user.TelegramID != nil {
-		profile.TelegramID = user.TelegramID
-	}
-	return profile
 }
 
 func (s *AuthService) SearchUsers(prefix string) ([]model.FriendInfo, error) {
 	return s.repo.SearchUsers(prefix)
-}
-
-func (s *AuthService) TelegramLogin(telegramID int64, name, username, avatarURL string) (string, string, error) {
-	avatarURL = sanitizeAvatarURL(avatarURL)
-	user, err := s.repo.GetUserByTelegramID(telegramID)
-	if err != nil {
-		if !errors.Is(err, repository.ErrNotFound) {
-			return "", "", err
-		}
-
-		telegramUsername := fmt.Sprintf("tg_%d", telegramID)
-		if username != "" {
-			telegramUsername = username
-		}
-
-		randomPassword, err := hashPassword(uuid.New().String())
-		if err != nil {
-			return "", "", err
-		}
-
-		tgID := telegramID
-		newUser := model.User{
-			Name:         name,
-			Username:     telegramUsername,
-			PasswordHash: randomPassword,
-			Email:        fmt.Sprintf("%s@telegram.local", telegramUsername),
-			AvatarURL:    avatarURL,
-			TelegramID:   &tgID,
-		}
-
-		id, err := s.repo.CreateUser(newUser)
-		if errors.Is(err, repository.ErrDuplicate) {
-			fallbackUser := fmt.Sprintf("tg_%d", telegramID)
-			fallbackEmail := fmt.Sprintf("%s@telegram.local", fallbackUser)
-			if newUser.Username == fallbackUser && newUser.Email == fallbackEmail {
-				return "", "", err
-			}
-			newUser.Username = fallbackUser
-			newUser.Email = fallbackEmail
-			id, err = s.repo.CreateUser(newUser)
-		}
-		if err != nil {
-			return "", "", err
-		}
-
-		user = newUser
-		user.ID = id
-	} else if avatarURL != "" && user.AvatarURL == "" {
-		if err := s.repo.UpdateUserProfile(user.ID, "", avatarURL); err != nil {
-			logrus.WithError(err).WithField("user_id", user.ID).Error("failed to update telegram avatar")
-		} else {
-			user.AvatarURL = avatarURL
-		}
-	}
-
-	return s.generateTokensForUser(user, "")
-}
-
-func (s *AuthService) LoginWithTelegramInitData(initData string) (string, string, error) {
-	if s.botToken == "" {
-		return "", "", errors.New("BOT_TOKEN is not configured")
-	}
-
-	data, err := verifyWebAppInitData(initData, s.botToken)
-	if err != nil {
-		return "", "", Unauthorized(err.Error())
-	}
-
-	userJSON, ok := data["user"]
-	if !ok || userJSON == "" {
-		return "", "", Unauthorized("missing user in init data")
-	}
-
-	var tgUser telegramUser
-	if err := json.Unmarshal([]byte(userJSON), &tgUser); err != nil {
-		return "", "", Unauthorized("invalid user data")
-	}
-
-	name := tgUser.FirstName
-	if tgUser.LastName != "" {
-		name = name + " " + tgUser.LastName
-	}
-
-	return s.TelegramLogin(tgUser.ID, name, tgUser.Username, tgUser.PhotoURL)
-}
-
-func (s *AuthService) LoginWithTelegramWidget(data TelegramWidgetData) (string, string, error) {
-	if s.botToken == "" {
-		return "", "", errors.New("BOT_TOKEN is not configured")
-	}
-	fields := map[string]string{
-		"id":         fmt.Sprintf("%d", data.ID),
-		"auth_date":  fmt.Sprintf("%d", data.AuthDate),
-		"first_name": data.FirstName,
-	}
-	if data.LastName != "" {
-		fields["last_name"] = data.LastName
-	}
-	if data.Username != "" {
-		fields["username"] = data.Username
-	}
-	if data.PhotoURL != "" {
-		fields["photo_url"] = data.PhotoURL
-	}
-	if err := verifyLoginWidget(fields, data.Hash, s.botToken); err != nil {
-		return "", "", Unauthorized(err.Error())
-	}
-	name := data.FirstName
-	if data.LastName != "" {
-		name = name + " " + data.LastName
-	}
-	return s.TelegramLogin(data.ID, name, data.Username, data.PhotoURL)
 }
 
 func sanitizeAvatarURL(raw string) string {

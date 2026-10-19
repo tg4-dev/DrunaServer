@@ -34,8 +34,6 @@ go run cmd/main.go
 |----------|----------|-------------|
 | `DB_PASSWORD` | Yes | PostgreSQL password |
 | `JWT_SECRET` | Yes | JWT HMAC signing key |
-| `BOT_TOKEN` | Telegram auth | Telegram bot token for initData HMAC |
-| `TELEGRAM_AUTH_TTL_HOURS` | No | Max Telegram initData age in hours (default `24`) |
 | `METRICS_ENABLED` | No | Serve Prometheus on `METRICS_ADDR` (default `false`). The public API does not expose metrics |
 | `METRICS_ADDR` | No | Metrics listen address (default `127.0.0.1:9090`; Docker compose uses `0.0.0.0:9090` without publishing the port) |
 | `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
@@ -138,6 +136,8 @@ Recent additions:
 - `20250617000006` — refresh token `family_id` and `revoked_token_families`
 - `20250617000007` — unordered unique pair on `friends`
 - `20250617000008` — event and group times as `timestamptz`
+- `20250617000009` — drop `users.telegram_id` (Telegram auth removed)
+- `20250617000010` — remaining timestamps (friends, revoked tokens/families, notification outbox) as `timestamptz`
 
 If a database was migrated with the old timestamp `20250619011729_migration_init`, update `schema_migrations` manually or recreate the dev DB before applying `20250617000001`.
 
@@ -146,7 +146,7 @@ If a database was migrated with the old timestamp `20250619011729_migration_init
 - `GET /ping/` — health + DB ping (`503` if DB down, `status: "degraded"`)
 - Prometheus listens on `METRICS_ADDR` when `METRICS_ENABLED=true` (default `127.0.0.1:9090`). Compose does not publish that port. Grafana UI: `http://127.0.0.1:3000` (`admin` / `druna-dev`; change the password before sharing the host)
 - `notification_outbox` is read by an external bot, which sets `delivered_at`. This server only enqueues rows.
-- Request ID: `X-Request-ID` header (auto-generated if missing)
+- Request ID: `X-Request-ID` header (auto-generated if missing or invalid; accepted values are ≤128 chars of `[A-Za-z0-9._-]`)
 - Access logs: JSON lines with `request_id`, method, path, status, duration
 
 ## Pre-PR checklist

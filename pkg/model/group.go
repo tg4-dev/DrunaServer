@@ -5,9 +5,9 @@ import (
 )
 
 type Group struct {
-	ID            int       `json:"groupID" db:"id"`
-	OwnerID       int       `json:"ownerID" db:"owner_id"`
-	Name          string    `json:"name" db:"name" binding:"required"`
+	ID            int        `json:"groupID" db:"id"`
+	OwnerID       int        `json:"ownerID" db:"owner_id"`
+	Name          string     `json:"name" db:"name" binding:"required"`
 	ConfirmedTime *time.Time `json:"confirmedTime" db:"confirmed_time"`
 }
 

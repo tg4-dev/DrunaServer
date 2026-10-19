@@ -54,7 +54,7 @@ func (r *GroupPostgres) ListGroups(userID int) ([]model.Group, error) {
 		WHERE g.owner_id = $1 OR gm.user_id = $1
 		ORDER BY g.id`, groupTable)
 
-	var groups []model.Group
+	groups := []model.Group{}
 	if err := r.db.Select(&groups, query, userID); err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (r *GroupPostgres) IsGroupMember(groupID, userID int) (bool, error) {
 }
 
 func (r *GroupPostgres) GetMemberUserIDs(groupID int) ([]int, error) {
-	var ids []int
+	ids := []int{}
 	query := `SELECT user_id FROM group_members WHERE group_id = $1 ORDER BY user_id`
 	if err := r.db.Select(&ids, query, groupID); err != nil {
 		return nil, err

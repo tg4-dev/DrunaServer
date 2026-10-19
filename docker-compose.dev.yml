@@ -25,7 +25,6 @@ services:
     environment:
       DB_PASSWORD: postgres
       JWT_SECRET: changeme-dev-secret
-      BOT_TOKEN: ""
       DATABASE_URL: postgres://postgres:postgres@db:5432/druna_db?sslmode=disable
       CORS_ORIGINS: "*"
       METRICS_ENABLED: "true"

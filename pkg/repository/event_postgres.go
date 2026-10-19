@@ -157,7 +157,7 @@ func (r *EventPostgres) GetEventListFiltered(userID int, filter model.EventFilte
 		args = append(args, filter.Offset)
 	}
 
-	var events []model.Event
+	events := []model.Event{}
 	if err := r.db.Select(&events, query, args...); err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func (r *EventPostgres) GetGroupEvents(groupID int, filter model.EventFilter) ([
 		args = append(args, filter.Offset)
 	}
 
-	var events []model.Event
+	events := []model.Event{}
 	if err := r.db.Select(&events, query, args...); err != nil {
 		return nil, err
 	}

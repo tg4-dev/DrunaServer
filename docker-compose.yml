@@ -31,13 +31,12 @@ services:
     environment:
       DB_PASSWORD: postgres
       JWT_SECRET: changeme-dev-secret
-      BOT_TOKEN: ""
       DATABASE_URL: postgres://postgres:postgres@db:5432/druna_db?sslmode=disable
       CORS_ORIGINS: "*"
       METRICS_ENABLED: "true"
       METRICS_ADDR: 0.0.0.0:9090
     volumes:
-      - ./configs/config.docker.yaml:/root/configs/config.yaml
+      - ./configs/config.docker.yaml:/app/configs/config.yaml
     networks:
       - druna-net
 
