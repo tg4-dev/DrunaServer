@@ -12,9 +12,6 @@ type Authorization interface {
 	ParseAccessToken(token string) (int, string, error)
 	ParseToken(token string) (int, string, error)
 	RenewToken(refreshToken string) (string, string, error)
-	TelegramLogin(telegramID int64, name, username, avatarURL string) (string, string, error)
-	LoginWithTelegramInitData(initData string) (string, string, error)
-	LoginWithTelegramWidget(data TelegramWidgetData) (string, string, error)
 	Logout(refreshToken string) error
 	GetCurrentUser(userID int) (model.UserProfile, error)
 	UpdateProfile(userID int, name, avatarURL string) (model.UserProfile, error)

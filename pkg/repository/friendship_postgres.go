@@ -69,7 +69,7 @@ func (r *FriendshipPostgres) RejectFriendRequest(userID int, friendID int) error
 }
 
 func (r *FriendshipPostgres) GetFriendList(userID int) ([]model.FriendInfo, error) {
-	var friends []model.FriendInfo
+	friends := []model.FriendInfo{}
 
 	query := `
         SELECT u.id, u.name, u.username 
@@ -87,7 +87,7 @@ func (r *FriendshipPostgres) GetFriendList(userID int) ([]model.FriendInfo, erro
 }
 
 func (r *FriendshipPostgres) GetIncomingFriendRequests(userID int) ([]model.FriendInfo, error) {
-	var friends []model.FriendInfo
+	friends := []model.FriendInfo{}
 	query := `
         SELECT u.id, u.name, u.username
         FROM friends f
@@ -102,7 +102,7 @@ func (r *FriendshipPostgres) GetIncomingFriendRequests(userID int) ([]model.Frie
 }
 
 func (r *FriendshipPostgres) GetOutgoingFriendRequests(userID int) ([]model.FriendInfo, error) {
-	var friends []model.FriendInfo
+	friends := []model.FriendInfo{}
 	query := `
         SELECT u.id, u.name, u.username
         FROM friends f

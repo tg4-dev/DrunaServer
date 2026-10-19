@@ -5,7 +5,6 @@ Backend REST API for the Druna app: users, events, friends, and groups.
 ## Features
 
 - JWT auth with separate access/refresh tokens, rotation, family revocation, and logout
-- Telegram Mini App and Login Widget auth
 - Events with overlap validation, filters, pagination, and free-time slots
 - Friends with search, incoming/outgoing requests, and re-request after reject
 - Groups with members, time confirmation, group free-time, group events, leave/delete
@@ -35,8 +34,6 @@ Default port: `8000` (from `configs/config.yaml`).
 |----------|----------|-------------|
 | `DB_PASSWORD` | Yes | PostgreSQL password |
 | `JWT_SECRET` | Yes | JWT signing key |
-| `BOT_TOKEN` | For Telegram | Telegram bot token |
-| `TELEGRAM_AUTH_TTL_HOURS` | No | Max initData age in hours (default `24`) |
 | `METRICS_ENABLED` | No | Serve Prometheus on `METRICS_ADDR` (default `false`). The public API does not expose metrics |
 | `METRICS_ADDR` | No | Metrics listen address (default `127.0.0.1:9090`) |
 | `SWAGGER_ENABLED` | No | Expose `/swagger` (default `true`) |
@@ -110,7 +107,6 @@ On the host, edit `docker-compose.yml` before the first start:
 |---------|------------------|
 | `POSTGRES_PASSWORD` and the password in `DATABASE_URL` | Same strong password |
 | `JWT_SECRET` | Long random secret |
-| `BOT_TOKEN` | Telegram bot token, if Telegram login is used |
 | `CORS_ORIGINS` | Real client origins, comma-separated |
 | `SWAGGER_ENABLED` | `false` |
 | `TRUSTED_PROXIES` | CIDRs of the reverse proxy, if one sits in front of the API |
@@ -176,8 +172,6 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | POST | /auth/sign-in | Login |
 | POST | /auth/renew-token | Refresh token rotation |
 | POST | /auth/logout | Revoke the refresh-token family |
-| POST | /auth/telegram | Telegram Mini App login |
-| POST | /auth/telegram/widget | Telegram Login Widget |
 
 ### Users (auth required)
 

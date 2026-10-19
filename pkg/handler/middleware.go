@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,10 +17,20 @@ const (
 	requestIDKey        = "requestID"
 )
 
+const maxRequestIDLen = 128
+
+var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validRequestID reports whether a client-supplied X-Request-ID is safe to
+// echo back and log.
+func validRequestID(id string) bool {
+	return len(id) <= maxRequestIDLen && requestIDPattern.MatchString(id)
+}
+
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
-		if requestID == "" {
+		if !validRequestID(requestID) {
 			requestID = uuid.New().String()
 		}
 		c.Set(requestIDKey, requestID)

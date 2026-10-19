@@ -61,9 +61,6 @@ func (m mockFriendAuth) CreateUser(user model.User) (int, error) { return 0, nil
 func (m mockFriendAuth) GetUserByUsername(username string) (model.User, error) {
 	return model.User{}, repository.ErrNotFound
 }
-func (m mockFriendAuth) GetUserByTelegramID(telegramID int64) (model.User, error) {
-	return model.User{}, repository.ErrNotFound
-}
 func (m mockFriendAuth) GetUserByID(userID int) (model.User, error) {
 	return model.User{ID: userID, Username: "alice"}, nil
 }

@@ -27,10 +27,6 @@ func (m *mockAuthRepo) GetUserByUsername(username string) (model.User, error) {
 	return user, nil
 }
 
-func (m *mockAuthRepo) GetUserByTelegramID(telegramID int64) (model.User, error) {
-	return model.User{}, repository.ErrNotFound
-}
-
 func (m *mockAuthRepo) GetUserByID(userID int) (model.User, error) {
 	for _, user := range m.users {
 		if user.ID == userID {
@@ -222,26 +218,20 @@ func TestSignInHidesUnknownUser(t *testing.T) {
 	}
 }
 
-func TestCreateUserIgnoresTelegramID(t *testing.T) {
+func TestCreateUserIgnoresAvatar(t *testing.T) {
 	repo := &mockAuthRepo{users: map[string]model.User{}}
 	svc := NewAuthService(repo, &mockTokenRepo{})
-	tg := int64(99)
 	_, err := svc.CreateUser(model.User{
-		Name:       "Eve",
-		Username:   "eve",
-		Email:      "eve@test.local",
-		Password:   "secret12345",
-		TelegramID: &tg,
-		AvatarURL:  "https://example.com/a.png",
+		Name:      "Eve",
+		Username:  "eve",
+		Email:     "eve@test.local",
+		Password:  "secret12345",
+		AvatarURL: "https://example.com/a.png",
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	stored := repo.users["eve"]
-	if stored.TelegramID != nil {
-		t.Fatalf("telegram id must not be stored on password signup: %v", *stored.TelegramID)
-	}
-	if stored.AvatarURL != "" {
+	if stored := repo.users["eve"]; stored.AvatarURL != "" {
 		t.Fatalf("avatar must not be stored on password signup: %s", stored.AvatarURL)
 	}
 }
