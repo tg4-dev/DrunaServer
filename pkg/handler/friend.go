@@ -26,11 +26,12 @@ func (h *Handler) getUserIdFromToken(c *gin.Context) int {
 
 // searchUsers godoc
 // @Summary Search users by username prefix
+// @Description Excludes the caller. Each result has relation: friend, incoming, outgoing or none.
 // @Tags friends
 // @Produce json
 // @Security ApiKeyAuth
 // @Param username query string true "Username prefix"
-// @Success 200 {object} model.APIResponse
+// @Success 200 {object} model.APIResponse{data=[]model.UserSearchResult}
 // @Failure 401 {object} model.APIResponse
 // @Router /api/v1/friends/search [get]
 func (h *Handler) searchUsers(c *gin.Context) {
@@ -39,7 +40,7 @@ func (h *Handler) searchUsers(c *gin.Context) {
 		return
 	}
 	prefix := c.Query("username")
-	users, err := h.services.Authorization.SearchUsers(prefix)
+	users, err := h.services.Authorization.SearchUsers(userID, prefix)
 	if err != nil {
 		writeServiceError(c, err)
 		return

@@ -20,11 +20,25 @@ definitions:
     properties:
       code:
         type: integer
+      field:
+        description: |-
+          Field names the request field the error is about, e.g. "username"
+          on a 409 from sign-up. Omitted when the error is not about one field.
+        type: string
       message:
         type: string
     type: object
   model.Event:
     properties:
+      allDay:
+        description: |-
+          AllDay marks an event shown as a day bar without times. StartTime and
+          EndTime still hold the covered interval (midnight to midnight in the
+          owner's time zone) and count as busy time.
+        type: boolean
+      description:
+        description: Description is free text up to MaxEventDescriptionLen characters.
+        type: string
       endTime:
         type: string
       eventID:
@@ -90,6 +104,11 @@ definitions:
     type: object
   model.SignUpDoc:
     properties:
+      avatarColor:
+        description: Optional avatar style chosen during onboarding.
+        type: integer
+      avatarFont:
+        type: string
       email:
         type: string
       name:
@@ -101,9 +120,37 @@ definitions:
     type: object
   model.UpdateProfileInput:
     properties:
+      avatarColor:
+        type: integer
+      avatarFont:
+        type: string
       avatarURL:
         type: string
       name:
+        type: string
+    type: object
+  model.UserSearchResult:
+    properties:
+      avatarColor:
+        type: integer
+      avatarFont:
+        type: string
+      avatarURL:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      relation:
+        type: string
+      username:
+        type: string
+    type: object
+  model.UsernameAvailability:
+    properties:
+      available:
+        type: boolean
+      username:
         type: string
     type: object
 host: localhost:8000
@@ -474,6 +521,8 @@ paths:
       - friends
   /api/v1/friends/search:
     get:
+      description: 'Excludes the caller. Each result has relation: friend, incoming,
+        outgoing or none.'
       parameters:
       - description: Username prefix
         in: query
@@ -486,7 +535,14 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/model.APIResponse'
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/model.UserSearchResult'
+                  type: array
+              type: object
         "401":
           description: Unauthorized
           schema:
@@ -933,6 +989,9 @@ paths:
     patch:
       consumes:
       - application/json
+      description: |-
+        Absent fields are unchanged. `null` clears avatarURL, avatarColor or avatarFont.
+        An empty name or avatarURL is ignored (compatibility with older clients).
       parameters:
       - description: Profile fields
         in: body
@@ -953,6 +1012,10 @@ paths:
             $ref: '#/definitions/model.APIResponse'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/model.APIResponse'
       security:
@@ -1060,7 +1123,7 @@ paths:
           schema:
             $ref: '#/definitions/model.APIResponse'
         "409":
-          description: Conflict
+          description: error.field is \"username\" or \"email\
           schema:
             $ref: '#/definitions/model.APIResponse'
         "500":
@@ -1068,6 +1131,39 @@ paths:
           schema:
             $ref: '#/definitions/model.APIResponse'
       summary: Register a new user
+      tags:
+      - auth
+  /auth/username-available:
+    get:
+      description: Case-insensitive. The username must be 3-32 characters of a-z,
+        0-9, "_" and "."; otherwise 400.
+      parameters:
+      - description: Username to check
+        in: query
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.UsernameAvailability'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      summary: Check whether a username is free
       tags:
       - auth
   /ping/:

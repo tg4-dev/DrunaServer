@@ -31,3 +31,20 @@ func MapPGError(err error) error {
 	}
 	return err
 }
+
+// DuplicateError is a unique violation on a known request field.
+// errors.Is(err, ErrDuplicate) holds for it.
+type DuplicateError struct {
+	Field string
+}
+
+func (e *DuplicateError) Error() string {
+	if e.Field == "" {
+		return ErrDuplicate.Error()
+	}
+	return e.Field + " " + ErrDuplicate.Error()
+}
+
+func (e *DuplicateError) Is(target error) bool {
+	return target == ErrDuplicate
+}

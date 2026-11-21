@@ -14,8 +14,9 @@ type Authorization interface {
 	RenewToken(refreshToken string) (string, string, error)
 	Logout(refreshToken string) error
 	GetCurrentUser(userID int) (model.UserProfile, error)
-	UpdateProfile(userID int, name, avatarURL string) (model.UserProfile, error)
-	SearchUsers(prefix string) ([]model.FriendInfo, error)
+	UpdateProfile(userID int, input model.UpdateProfileInput) (model.UserProfile, error)
+	SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error)
+	UsernameAvailable(username string) (bool, error)
 }
 
 type Event interface {

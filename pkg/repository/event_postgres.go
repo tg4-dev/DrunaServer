@@ -37,8 +37,8 @@ func (r *EventPostgres) CreateEvent(event model.Event) (int, error) {
 	}
 
 	var id int
-	query := fmt.Sprintf("INSERT INTO %s (user_id, start_time, end_time, title, type) VALUES ($1, $2, $3, $4, $5) RETURNING id", eventsTable)
-	if err := tx.QueryRow(query, event.UserID, event.StartTime, event.EndTime, event.Title, event.Type).Scan(&id); err != nil {
+	query := fmt.Sprintf("INSERT INTO %s (user_id, start_time, end_time, title, type, description, all_day) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id", eventsTable)
+	if err := tx.QueryRow(query, event.UserID, event.StartTime, event.EndTime, event.Title, event.Type, event.Description, event.AllDay).Scan(&id); err != nil {
 		return 0, MapPGError(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -66,9 +66,9 @@ func (r *EventPostgres) UpdateEvent(userID int, event model.Event) error {
 	}
 
 	query := fmt.Sprintf(`
-		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4
+		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4, description = $7, all_day = $8
 		WHERE id = $5 AND user_id = $6 AND group_id IS NULL`, eventsTable)
-	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, event.ID, userID)
+	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, event.ID, userID, event.Description, event.AllDay)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (r *EventPostgres) GetEventList(userID int) ([]model.Event, error) {
 }
 
 func (r *EventPostgres) GetEventListFiltered(userID int, filter model.EventFilter) ([]model.Event, error) {
-	query := fmt.Sprintf("SELECT id, user_id, group_id, title, start_time, end_time, type FROM %s WHERE user_id = $1 AND group_id IS NULL", eventsTable)
+	query := fmt.Sprintf("SELECT id, user_id, group_id, title, description, all_day, start_time, end_time, type FROM %s WHERE user_id = $1 AND group_id IS NULL", eventsTable)
 	args := []interface{}{userID}
 	argIdx := 2
 
@@ -207,7 +207,7 @@ func (r *EventPostgres) GetBusyEventsForUsers(userIDs []int, dateFrom, dateTo ti
 	}
 
 	personalQuery, personalArgs, err := sqlx.In(fmt.Sprintf(`
-		SELECT user_id AS member_id, id, user_id, group_id, title, start_time, end_time, type
+		SELECT user_id AS member_id, id, user_id, group_id, title, description, all_day, start_time, end_time, type
 		FROM %s
 		WHERE group_id IS NULL
 		  AND user_id IN (?)
@@ -227,7 +227,7 @@ func (r *EventPostgres) GetBusyEventsForUsers(userIDs []int, dateFrom, dateTo ti
 	}
 
 	groupQuery, groupArgs, err := sqlx.In(fmt.Sprintf(`
-		SELECT gm.user_id AS member_id, e.id, e.user_id, e.group_id, e.title, e.start_time, e.end_time, e.type
+		SELECT gm.user_id AS member_id, e.id, e.user_id, e.group_id, e.title, e.description, e.all_day, e.start_time, e.end_time, e.type
 		FROM %s e
 		JOIN group_members gm ON e.group_id = gm.group_id
 		WHERE gm.user_id IN (?)
@@ -271,8 +271,8 @@ func (r *EventPostgres) CreateGroupEvent(event model.Event) (int, error) {
 	}
 
 	var id int
-	query := fmt.Sprintf("INSERT INTO %s (user_id, group_id, start_time, end_time, title, type) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", eventsTable)
-	if err := tx.QueryRow(query, event.UserID, event.GroupID, event.StartTime, event.EndTime, event.Title, event.Type).Scan(&id); err != nil {
+	query := fmt.Sprintf("INSERT INTO %s (user_id, group_id, start_time, end_time, title, type, description, all_day) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id", eventsTable)
+	if err := tx.QueryRow(query, event.UserID, event.GroupID, event.StartTime, event.EndTime, event.Title, event.Type, event.Description, event.AllDay).Scan(&id); err != nil {
 		return 0, MapPGError(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -300,9 +300,9 @@ func (r *EventPostgres) UpdateGroupEvent(groupID, eventID int, event model.Event
 	}
 
 	query := fmt.Sprintf(`
-		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4
+		UPDATE %s SET start_time = $1, end_time = $2, title = $3, type = $4, description = $7, all_day = $8
 		WHERE id = $5 AND group_id = $6`, eventsTable)
-	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, eventID, groupID)
+	result, err := tx.Exec(query, event.StartTime, event.EndTime, event.Title, event.Type, eventID, groupID, event.Description, event.AllDay)
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func (r *EventPostgres) DeleteGroupEvent(groupID, eventID int) error {
 
 func (r *EventPostgres) GetGroupEventByID(groupID, eventID int) (model.Event, error) {
 	var event model.Event
-	query := fmt.Sprintf("SELECT id, user_id, group_id, title, start_time, end_time, type FROM %s WHERE id = $1 AND group_id = $2", eventsTable)
+	query := fmt.Sprintf("SELECT id, user_id, group_id, title, description, all_day, start_time, end_time, type FROM %s WHERE id = $1 AND group_id = $2", eventsTable)
 	if err := r.db.Get(&event, query, eventID, groupID); err != nil {
 		return event, MapPGError(err)
 	}
@@ -342,7 +342,7 @@ func (r *EventPostgres) GetGroupEventByID(groupID, eventID int) (model.Event, er
 }
 
 func (r *EventPostgres) GetGroupEvents(groupID int, filter model.EventFilter) ([]model.Event, error) {
-	query := fmt.Sprintf("SELECT id, user_id, group_id, title, start_time, end_time, type FROM %s WHERE group_id = $1", eventsTable)
+	query := fmt.Sprintf("SELECT id, user_id, group_id, title, description, all_day, start_time, end_time, type FROM %s WHERE group_id = $1", eventsTable)
 	args := []interface{}{groupID}
 	argIdx := 2
 

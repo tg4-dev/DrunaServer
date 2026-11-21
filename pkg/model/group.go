@@ -12,9 +12,10 @@ type Group struct {
 }
 
 type GroupMemberInfo struct {
-	ID            int        `json:"id" db:"id"`
-	Name          string     `json:"name" db:"name"`
-	Username      string     `json:"username" db:"username"`
+	ID       int    `json:"id" db:"id"`
+	Name     string `json:"name" db:"name"`
+	Username string `json:"username" db:"username"`
+	AvatarStyle
 	ConfirmedTime *time.Time `json:"confirmedTime,omitempty" db:"confirmed_time"`
 }
 

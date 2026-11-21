@@ -11,11 +11,13 @@ import (
 )
 
 type signUpInput struct {
-	Name         string `json:"name" binding:"required"`
-	Username     string `json:"username" binding:"required"`
-	Email        string `json:"email" binding:"required"`
-	Password     string `json:"password"`
-	PasswordHash string `json:"passwordHash"`
+	Name         string  `json:"name" binding:"required"`
+	Username     string  `json:"username" binding:"required"`
+	Email        string  `json:"email" binding:"required"`
+	Password     string  `json:"password"`
+	PasswordHash string  `json:"passwordHash"`
+	AvatarColor  *int    `json:"avatarColor"`
+	AvatarFont   *string `json:"avatarFont"`
 }
 
 func (in signUpInput) password() string {
@@ -33,7 +35,7 @@ func (in signUpInput) password() string {
 // @Param input body model.SignUpDoc true "Sign up payload"
 // @Success 200 {object} model.APIResponse
 // @Failure 400 {object} model.APIResponse
-// @Failure 409 {object} model.APIResponse
+// @Failure 409 {object} model.APIResponse "error.field is \"username\" or \"email\""
 // @Failure 500 {object} model.APIResponse
 // @Router /auth/sign-up [post]
 func (h *Handler) signUp(c *gin.Context) {
@@ -53,6 +55,8 @@ func (h *Handler) signUp(c *gin.Context) {
 		Email:    input.Email,
 		Password: input.password(),
 	}
+	user.AvatarColor = input.AvatarColor
+	user.AvatarFont = input.AvatarFont
 	id, err := h.services.Authorization.CreateUser(user)
 	if err != nil {
 		if errors.Is(err, service.ErrPasswordTooShort) || errors.Is(err, service.ErrPasswordTooLong) {
@@ -64,6 +68,26 @@ func (h *Handler) signUp(c *gin.Context) {
 	}
 
 	Success(c, http.StatusOK, gin.H{"id": id})
+}
+
+// usernameAvailable godoc
+// @Summary Check whether a username is free
+// @Description Case-insensitive. The username must be 3-32 characters of a-z, 0-9, "_" and "."; otherwise 400.
+// @Tags auth
+// @Produce json
+// @Param username query string true "Username to check"
+// @Success 200 {object} model.APIResponse{data=model.UsernameAvailability}
+// @Failure 400 {object} model.APIResponse
+// @Failure 429 {object} model.APIResponse
+// @Router /auth/username-available [get]
+func (h *Handler) usernameAvailable(c *gin.Context) {
+	username := c.Query("username")
+	available, err := h.services.Authorization.UsernameAvailable(username)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, model.UsernameAvailability{Username: username, Available: available})
 }
 
 type signInInput struct {

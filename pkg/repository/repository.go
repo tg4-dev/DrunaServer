@@ -12,8 +12,9 @@ type Authorization interface {
 	CreateUser(user model.User) (int, error)
 	GetUserByUsername(username string) (model.User, error)
 	GetUserByID(userID int) (model.User, error)
-	UpdateUserProfile(userID int, name, avatarURL string) error
-	SearchUsers(prefix string) ([]model.FriendInfo, error)
+	UsernameExists(username string) (bool, error)
+	UpdateUserProfile(userID int, update model.ProfileUpdate) error
+	SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error)
 }
 
 type Token interface {

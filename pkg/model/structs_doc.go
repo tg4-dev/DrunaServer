@@ -7,6 +7,9 @@ type SignUpDoc struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Optional avatar style chosen during onboarding.
+	AvatarColor *int    `json:"avatarColor,omitempty"`
+	AvatarFont  *string `json:"avatarFont,omitempty"`
 }
 
 type SignInDoc struct {

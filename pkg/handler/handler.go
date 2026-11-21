@@ -52,6 +52,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		auth.POST("/sign-in", h.signIn)
 		auth.POST("/renew-token", h.renewToken)
 		auth.POST("/logout", h.logout)
+		auth.GET("/username-available", h.usernameAvailable)
 	}
 
 	userLimiter := NewRateLimiter(60)

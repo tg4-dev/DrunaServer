@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,14 +43,20 @@ func (m *handlerAuthRepo) GetUserByID(userID int) (model.User, error) {
 	return model.User{}, repository.ErrNotFound
 }
 
-func (m *handlerAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) error {
+func (m *handlerAuthRepo) UpdateUserProfile(userID int, update model.ProfileUpdate) error {
 	for username, user := range m.users {
 		if user.ID == userID {
-			if name != "" {
-				user.Name = name
+			if update.Name != nil {
+				user.Name = *update.Name
 			}
-			if avatarURL != "" {
-				user.AvatarURL = avatarURL
+			if update.AvatarURL != nil {
+				user.AvatarURL = *update.AvatarURL
+			}
+			if update.AvatarColor != nil {
+				user.AvatarColor = update.AvatarColor.Value
+			}
+			if update.AvatarFont != nil {
+				user.AvatarFont = update.AvatarFont.Value
 			}
 			m.users[username] = user
 			return nil
@@ -58,8 +65,17 @@ func (m *handlerAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) 
 	return repository.ErrNotFound
 }
 
-func (m *handlerAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error) {
-	return nil, nil
+func (m *handlerAuthRepo) UsernameExists(username string) (bool, error) {
+	for name := range m.users {
+		if strings.EqualFold(name, username) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *handlerAuthRepo) SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error) {
+	return []model.UserSearchResult{}, nil
 }
 
 type handlerTokenRepo struct{}
@@ -138,5 +154,118 @@ func TestProtectedRouteUnauthorized(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func doJSON(t *testing.T, router *gin.Engine, method, path, token string, body interface{}) (*httptest.ResponseRecorder, model.APIResponse) {
+	t.Helper()
+	var reader *bytes.Reader
+	switch b := body.(type) {
+	case nil:
+		reader = bytes.NewReader(nil)
+	case string:
+		reader = bytes.NewReader([]byte(b))
+	default:
+		payload, _ := json.Marshal(b)
+		reader = bytes.NewReader(payload)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, reader)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	router.ServeHTTP(rec, req)
+	var resp model.APIResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	return rec, resp
+}
+
+func signUpAndIn(t *testing.T, router *gin.Engine, username string) string {
+	t.Helper()
+	rec, _ := doJSON(t, router, http.MethodPost, "/auth/sign-up", "", map[string]interface{}{
+		"name": "Test", "username": username, "email": username + "@test.local", "password": "secret12345",
+		"avatarColor": 4, "avatarFont": "oswald",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sign-up: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, resp := doJSON(t, router, http.MethodPost, "/auth/sign-in", "", map[string]string{"username": username, "password": "secret12345"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sign-in: %d %s", rec.Code, rec.Body.String())
+	}
+	return resp.Data.(map[string]interface{})["accessToken"].(string)
+}
+
+func TestSignUpDuplicateUsernameReturnsField(t *testing.T) {
+	router := setupHandlerRouter(t)
+	signUpAndIn(t, router, "dup")
+
+	rec, resp := doJSON(t, router, http.MethodPost, "/auth/sign-up", "", map[string]string{
+		"name": "Other", "username": "DUP", "email": "other@test.local", "password": "secret12345",
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if resp.Error == nil || resp.Error.Field != "username" || resp.Error.Code != http.StatusConflict {
+		t.Fatalf("unexpected error body: %s", rec.Body.String())
+	}
+}
+
+func TestUsernameAvailableEndpoint(t *testing.T) {
+	router := setupHandlerRouter(t)
+	signUpAndIn(t, router, "taken")
+
+	cases := []struct {
+		query     string
+		status    int
+		available bool
+	}{
+		{"Taken", http.StatusOK, false},
+		{"free_name", http.StatusOK, true},
+		{"ab", http.StatusBadRequest, false},
+	}
+	for _, tc := range cases {
+		rec, resp := doJSON(t, router, http.MethodGet, "/auth/username-available?username="+tc.query, "", nil)
+		if rec.Code != tc.status {
+			t.Fatalf("%s: expected %d, got %d: %s", tc.query, tc.status, rec.Code, rec.Body.String())
+		}
+		if tc.status == http.StatusOK && resp.Data.(map[string]interface{})["available"] != tc.available {
+			t.Fatalf("%s: unexpected body %s", tc.query, rec.Body.String())
+		}
+		if tc.status == http.StatusBadRequest && (resp.Error == nil || resp.Error.Field != "username") {
+			t.Fatalf("%s: expected field username: %s", tc.query, rec.Body.String())
+		}
+	}
+}
+
+func TestUpdateProfileNullClearsAvatarStyle(t *testing.T) {
+	router := setupHandlerRouter(t)
+	token := signUpAndIn(t, router, "styler")
+
+	rec, resp := doJSON(t, router, http.MethodGet, "/api/v1/users/me", token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get me: %d %s", rec.Code, rec.Body.String())
+	}
+	me := resp.Data.(map[string]interface{})
+	if me["avatarColor"] != float64(4) || me["avatarFont"] != "oswald" {
+		t.Fatalf("sign-up style not returned: %s", rec.Body.String())
+	}
+
+	rec, resp = doJSON(t, router, http.MethodPatch, "/api/v1/users/me", token, `{"avatarColor": null, "avatarFont": "unbounded"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", rec.Code, rec.Body.String())
+	}
+	me = resp.Data.(map[string]interface{})
+	if v, ok := me["avatarColor"]; !ok || v != nil {
+		t.Fatalf("avatarColor must be present and null: %s", rec.Body.String())
+	}
+	if me["avatarFont"] != "unbounded" || me["name"] != "Test" {
+		t.Fatalf("unexpected profile: %s", rec.Body.String())
+	}
+
+	rec, resp = doJSON(t, router, http.MethodPatch, "/api/v1/users/me", token, `{"avatarColor": 9}`)
+	if rec.Code != http.StatusBadRequest || resp.Error == nil || resp.Error.Field != "avatarColor" {
+		t.Fatalf("expected 400 on avatarColor: %d %s", rec.Code, rec.Body.String())
 	}
 }

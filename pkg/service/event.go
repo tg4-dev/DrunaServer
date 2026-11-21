@@ -4,8 +4,10 @@ import (
 	"druna_server/pkg/model"
 	"druna_server/pkg/repository"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
+	"unicode/utf8"
 )
 
 type EventService struct {
@@ -19,6 +21,16 @@ func NewEventService(repo repository.Event) *EventService {
 func validateEventWindow(start, end time.Time) error {
 	if !end.After(start) {
 		return Validation("end time must be after start time")
+	}
+	return nil
+}
+
+func validateEvent(event model.Event) error {
+	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
+		return err
+	}
+	if utf8.RuneCountInString(event.Description) > model.MaxEventDescriptionLen {
+		return Validation(fmt.Sprintf("description must be at most %d characters", model.MaxEventDescriptionLen)).WithField("description")
 	}
 	return nil
 }
@@ -37,7 +49,7 @@ func mapEventWriteErr(err error, overlapMsg string) error {
 }
 
 func (s *EventService) CreateEvent(event model.Event) (int, error) {
-	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
+	if err := validateEvent(event); err != nil {
 		return 0, err
 	}
 	id, err := s.repo.CreateEvent(event)
@@ -48,7 +60,7 @@ func (s *EventService) CreateEvent(event model.Event) (int, error) {
 }
 
 func (s *EventService) UpdateEvent(userID int, event model.Event) error {
-	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
+	if err := validateEvent(event); err != nil {
 		return err
 	}
 	return mapEventWriteErr(s.repo.UpdateEvent(userID, event), "event overlaps with an existing event")

@@ -16,7 +16,21 @@ type Friend struct {
 }
 
 type FriendInfo struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	Username string `json:"username"`
+	ID       int    `json:"id" db:"id"`
+	Name     string `json:"name" db:"name"`
+	Username string `json:"username" db:"username"`
+	AvatarStyle
+}
+
+// Relation of a search result to the current user.
+const (
+	RelationFriend   = "friend"
+	RelationIncoming = "incoming"
+	RelationOutgoing = "outgoing"
+	RelationNone     = "none"
+)
+
+type UserSearchResult struct {
+	FriendInfo
+	Relation string `json:"relation" db:"relation"`
 }

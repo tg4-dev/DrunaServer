@@ -64,8 +64,9 @@ func (m mockFriendAuth) GetUserByUsername(username string) (model.User, error) {
 func (m mockFriendAuth) GetUserByID(userID int) (model.User, error) {
 	return model.User{ID: userID, Username: "alice"}, nil
 }
-func (m mockFriendAuth) UpdateUserProfile(userID int, name, avatarURL string) error { return nil }
-func (m mockFriendAuth) SearchUsers(prefix string) ([]model.FriendInfo, error) {
+func (m mockFriendAuth) UpdateUserProfile(userID int, update model.ProfileUpdate) error { return nil }
+func (m mockFriendAuth) UsernameExists(username string) (bool, error)                   { return false, nil }
+func (m mockFriendAuth) SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error) {
 	return nil, nil
 }
 

@@ -172,13 +172,14 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | POST | /auth/sign-in | Login |
 | POST | /auth/renew-token | Refresh token rotation |
 | POST | /auth/logout | Revoke the refresh-token family |
+| GET | /auth/username-available?username= | Case-insensitive username check |
 
 ### Users (auth required)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /api/v1/users/me | Current user profile |
-| PATCH | /api/v1/users/me | Update name / avatarURL |
+| PATCH | /api/v1/users/me | Update name, avatarURL, avatarColor, avatarFont (`null` clears) |
 
 ### Events (auth required)
 
@@ -195,7 +196,7 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | /api/v1/friends/list | Friend list |
-| GET | /api/v1/friends/search?username= | Search users by username prefix |
+| GET | /api/v1/friends/search?username= | Search users by username prefix (excludes self, adds `relation`) |
 | GET | /api/v1/friends/request-list | All pending requests |
 | GET | /api/v1/friends/requests/incoming | Incoming requests |
 | GET | /api/v1/friends/requests/outgoing | Outgoing requests |

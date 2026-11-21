@@ -111,6 +111,8 @@ Every JSON response follows this shape.
 
 Client parsing rule: if `error` is non-null, treat it as a failure and surface `error.message`; otherwise use `data`. The `code` mirrors the HTTP status.
 
+When an error is about one request field, `error.field` names it (for example `"username"` on a taken username, `"avatarColor"` on an invalid color). Branch on `code` and `field`, not on the message text. `field` is omitted otherwise.
+
 ---
 
 ## Headers
@@ -146,11 +148,23 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
   "name": "Alice",
   "username": "alice",
   "email": "alice@example.com",
-  "password": "secret123"
+  "password": "secret123",
+  "avatarColor": 3,
+  "avatarFont": "onest"
 }
 ```
 
-Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. A taken username or email returns **409** `username or email already taken`. Unknown users and wrong passwords both return **401** `invalid credentials`.
+Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. `avatarColor` and `avatarFont` are optional (see [Avatar style](#avatar-style)).
+
+A taken username returns **409** with `error.field = "username"`; usernames are compared case-insensitively, so `Alice` is taken if `alice` exists. A taken email returns **409** with `error.field = "email"`. Unknown users and wrong passwords at sign-in both return **401** `invalid credentials`.
+
+### Check username availability
+
+`GET /auth/username-available?username=alice` (public, same rate limit as `/auth/*`)
+
+**Response `data`:** `{ "username": "alice", "available": false }`
+
+Case-insensitive. The username must be 3–32 characters of `a–z`, `0–9`, `_` and `.` (any letter case); otherwise **400** with `error.field = "username"`. Sign-up itself does not enforce this format yet.
 
 **Response `data`:** `{ "id": 1 }`
 
@@ -247,9 +261,20 @@ Prefix: `/api/v1/users`. All routes require auth.
   "name": "Alice",
   "username": "alice",
   "email": "alice@example.com",
-  "avatarURL": "https://example.com/avatar.png"
+  "avatarURL": "https://example.com/avatar.png",
+  "avatarColor": 3,
+  "avatarFont": "onest"
 }
 ```
+
+`avatarURL` is `""` when there is no avatar. `avatarColor` and `avatarFont` are `null` until the user picks them.
+
+### Avatar style
+
+- `avatarColor`: palette index `0`–`7`.
+- `avatarFont`: one of `onest`, `playfair`, `lobster`, `oswald`, `unbounded`, `comfortaa`.
+
+Other values return **400** with `error.field`. The style is returned in `GET /users/me`, in every `FriendInfo` (friend lists, requests, search) and in group members, so friends see the same avatar.
 
 ### Update profile
 
@@ -258,11 +283,15 @@ Prefix: `/api/v1/users`. All routes require auth.
 ```json
 {
   "name": "Alice Updated",
-  "avatarURL": "https://example.com/new.png"
+  "avatarURL": "https://example.com/new.png",
+  "avatarColor": 5,
+  "avatarFont": "lobster"
 }
 ```
 
-Both fields are optional; omitted fields are unchanged. Image upload is out of scope — send an already-hosted `avatarURL`. Non-empty `avatarURL` must be an `https` URL.
+All fields are optional; omitted fields are unchanged. `null` clears `avatarURL`, `avatarColor` or `avatarFont`. An empty string in `name` or `avatarURL` is ignored, so older clients that always send both fields keep working; `name: null` or a blank name returns **400**. Image upload is out of scope — send an already-hosted `avatarURL`, which must be an `https` URL.
+
+**Response `data`:** the updated profile, as in `GET /users/me`.
 
 ---
 
@@ -293,6 +322,8 @@ Query params (all optional):
       "eventID": 1,
       "userID": 1,
       "title": "Meeting",
+      "description": "Room 4",
+      "allDay": false,
       "startTime": "2026-06-17T10:00:00Z",
       "endTime": "2026-06-17T11:00:00Z",
       "type": "work"
@@ -311,6 +342,8 @@ Query params (all optional):
 ```json
 {
   "title": "Meeting",
+  "description": "Room 4",
+  "allDay": false,
   "startTime": "2026-06-17T10:00:00Z",
   "endTime": "2026-06-17T11:00:00Z",
   "type": "work"
@@ -319,11 +352,14 @@ Query params (all optional):
 
 **Response `data`:** `{ "eventId": 1 }`
 
+- `description` is optional, up to 2000 characters (longer returns **400**, `error.field = "description"`).
+- `allDay` is optional (default `false`). It only tells the client to draw the event as a day bar. Still send `startTime`/`endTime` as the covered interval, e.g. midnight to midnight in the user's time zone; that interval counts as busy time and is checked for overlaps.
+
 Validation errors (`400`): end before start, or overlapping with an existing personal event.
 
 ### Update event
 
-`PATCH /api/v1/events/:id` — same body as create.
+`PATCH /api/v1/events/:id` — same body as create. The event is replaced as a whole: an omitted `description` or `allDay` resets to `""` / `false`.
 
 **Response `data`:** `{ "message": "event updated" }`
 
@@ -362,7 +398,7 @@ Prefix: `/api/v1/friends`. All routes require auth.
 | Method | Path | Body | Response `data` |
 |--------|------|------|-----------------|
 | GET | `/list` | — | `{ "friends": [FriendInfo] }` |
-| GET | `/search?username=ali` | — | `{ "users": [FriendInfo] }` |
+| GET | `/search?username=ali` | — | `{ "users": [UserSearchResult] }` |
 | GET | `/request-list` | — | all pending |
 | GET | `/requests/incoming` | — | incoming pending |
 | GET | `/requests/outgoing` | — | outgoing pending |
@@ -371,7 +407,13 @@ Prefix: `/api/v1/friends`. All routes require auth.
 | POST | `/reject` | `{ "username": "bob" }` | `{ "message": "friend request rejected" }` |
 | DELETE | `/` | `{ "username": "bob" }` | `{ "message": "friend deleted" }` |
 
-**FriendInfo:** `{ "id": 2, "name": "Bob", "username": "bob" }`
+**FriendInfo:**
+
+```json
+{ "id": 2, "name": "Bob", "username": "bob", "avatarURL": "", "avatarColor": 1, "avatarFont": "playfair" }
+```
+
+**UserSearchResult:** `FriendInfo` plus `relation`: `friend`, `incoming` (they sent you a request), `outgoing` (you sent them one) or `none`. Search matches a username prefix, never returns the caller, and returns at most 20 users.
 
 Business rules: no self-request (**400**). Already friends, a duplicate pending request, or a request the other person already sent you returns **409** (`user already sent you a request`). A rejected request can be sent again. Only the recipient can accept or reject (**403**).
 

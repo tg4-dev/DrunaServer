@@ -602,6 +602,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
+                "description": "Excludes the caller. Each result has relation: friend, incoming, outgoing or none.",
                 "produces": [
                     "application/json"
                 ],
@@ -622,7 +623,22 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/model.APIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/model.APIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/model.UserSearchResult"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "401": {
@@ -1327,6 +1343,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
+                "description": "Absent fields are unchanged. ` + "`" + `null` + "`" + ` clears avatarURL, avatarColor or avatarFont.\nAn empty name or avatarURL is ignored (compatibility with older clients).",
                 "consumes": [
                     "application/json"
                 ],
@@ -1363,6 +1380,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/model.APIResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
@@ -1528,13 +1551,66 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Conflict",
+                        "description": "error.field is \\\"username\\\" or \\\"email\\",
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.APIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/username-available": {
+            "get": {
+                "description": "Case-insensitive. The username must be 3-32 characters of a-z, 0-9, \"_\" and \".\"; otherwise 400.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Check whether a username is free",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Username to check",
+                        "name": "username",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/model.APIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/model.UsernameAvailability"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/model.APIResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
                         "schema": {
                             "$ref": "#/definitions/model.APIResponse"
                         }
@@ -1600,6 +1676,10 @@ const docTemplate = `{
                 "code": {
                     "type": "integer"
                 },
+                "field": {
+                    "description": "Field names the request field the error is about, e.g. \"username\"\non a 409 from sign-up. Omitted when the error is not about one field.",
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 }
@@ -1613,6 +1693,14 @@ const docTemplate = `{
                 "title"
             ],
             "properties": {
+                "allDay": {
+                    "description": "AllDay marks an event shown as a day bar without times. StartTime and\nEndTime still hold the covered interval (midnight to midnight in the\nowner's time zone) and count as busy time.",
+                    "type": "boolean"
+                },
+                "description": {
+                    "description": "Description is free text up to MaxEventDescriptionLen characters.",
+                    "type": "string"
+                },
                 "endTime": {
                     "type": "string"
                 },
@@ -1708,6 +1796,13 @@ const docTemplate = `{
         "model.SignUpDoc": {
             "type": "object",
             "properties": {
+                "avatarColor": {
+                    "description": "Optional avatar style chosen during onboarding.",
+                    "type": "integer"
+                },
+                "avatarFont": {
+                    "type": "string"
+                },
                 "email": {
                     "type": "string"
                 },
@@ -1725,10 +1820,53 @@ const docTemplate = `{
         "model.UpdateProfileInput": {
             "type": "object",
             "properties": {
+                "avatarColor": {
+                    "type": "integer"
+                },
+                "avatarFont": {
+                    "type": "string"
+                },
                 "avatarURL": {
                     "type": "string"
                 },
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.UserSearchResult": {
+            "type": "object",
+            "properties": {
+                "avatarColor": {
+                    "type": "integer"
+                },
+                "avatarFont": {
+                    "type": "string"
+                },
+                "avatarURL": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "relation": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.UsernameAvailability": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "username": {
                     "type": "string"
                 }
             }

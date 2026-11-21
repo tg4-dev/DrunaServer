@@ -5,6 +5,7 @@ import (
 	"druna_server/pkg/repository"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,14 +37,20 @@ func (m *mockAuthRepo) GetUserByID(userID int) (model.User, error) {
 	return model.User{}, repository.ErrNotFound
 }
 
-func (m *mockAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) error {
+func (m *mockAuthRepo) UpdateUserProfile(userID int, update model.ProfileUpdate) error {
 	for username, user := range m.users {
 		if user.ID == userID {
-			if name != "" {
-				user.Name = name
+			if update.Name != nil {
+				user.Name = *update.Name
 			}
-			if avatarURL != "" {
-				user.AvatarURL = avatarURL
+			if update.AvatarURL != nil {
+				user.AvatarURL = *update.AvatarURL
+			}
+			if update.AvatarColor != nil {
+				user.AvatarColor = update.AvatarColor.Value
+			}
+			if update.AvatarFont != nil {
+				user.AvatarFont = update.AvatarFont.Value
 			}
 			m.users[username] = user
 			return nil
@@ -52,8 +59,17 @@ func (m *mockAuthRepo) UpdateUserProfile(userID int, name, avatarURL string) err
 	return repository.ErrNotFound
 }
 
-func (m *mockAuthRepo) SearchUsers(prefix string) ([]model.FriendInfo, error) {
-	return []model.FriendInfo{}, nil
+func (m *mockAuthRepo) UsernameExists(username string) (bool, error) {
+	for name := range m.users {
+		if strings.EqualFold(name, username) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockAuthRepo) SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error) {
+	return []model.UserSearchResult{}, nil
 }
 
 type mockTokenRepo struct {
@@ -222,11 +238,11 @@ func TestCreateUserIgnoresAvatar(t *testing.T) {
 	repo := &mockAuthRepo{users: map[string]model.User{}}
 	svc := NewAuthService(repo, &mockTokenRepo{})
 	_, err := svc.CreateUser(model.User{
-		Name:      "Eve",
-		Username:  "eve",
-		Email:     "eve@test.local",
-		Password:  "secret12345",
-		AvatarURL: "https://example.com/a.png",
+		Name:        "Eve",
+		Username:    "eve",
+		Email:       "eve@test.local",
+		Password:    "secret12345",
+		AvatarStyle: model.AvatarStyle{AvatarURL: "https://example.com/a.png"},
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)

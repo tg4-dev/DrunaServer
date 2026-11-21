@@ -36,10 +36,13 @@ func (h *Handler) getCurrentUser(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
+// @Description Absent fields are unchanged. `null` clears avatarURL, avatarColor or avatarFont.
+// @Description An empty name or avatarURL is ignored (compatibility with older clients).
 // @Param input body model.UpdateProfileInput true "Profile fields"
 // @Success 200 {object} model.APIResponse
 // @Failure 400 {object} model.APIResponse
 // @Failure 401 {object} model.APIResponse
+// @Failure 404 {object} model.APIResponse
 // @Router /api/v1/users/me [patch]
 func (h *Handler) updateCurrentUser(c *gin.Context) {
 	userID := h.getUserIdFromToken(c)
@@ -49,11 +52,11 @@ func (h *Handler) updateCurrentUser(c *gin.Context) {
 
 	var input model.UpdateProfileInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		NewErrorResponse(c, http.StatusBadRequest, err.Error())
+		NewErrorResponse(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	profile, err := h.services.Authorization.UpdateProfile(userID, input.Name, input.AvatarURL)
+	profile, err := h.services.Authorization.UpdateProfile(userID, input)
 	if err != nil {
 		writeServiceError(c, err)
 		return
