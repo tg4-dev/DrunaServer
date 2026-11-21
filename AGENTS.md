@@ -140,6 +140,7 @@ Recent additions:
 - `20250617000009` — drop `users.telegram_id` (Telegram auth removed)
 - `20250617000010` — remaining timestamps (friends, revoked tokens/families, notification outbox) as `timestamptz`
 - `20250617000011` — `users.avatar_color` / `avatar_font`, `events.description` / `all_day`, index on `LOWER(username)`
+- `20250617000012` — `invites` and `invite_participants`
 
 If a database was migrated with the old timestamp `20250619011729_migration_init`, update `schema_migrations` manually or recreate the dev DB before applying `20250617000001`.
 

@@ -192,8 +192,8 @@ func (r *EventPostgres) CountEvents(userID int, filter model.EventFilter) (int, 
 }
 
 // GetBusyEventsForUsers returns, for each requested user, the union of their
-// personal events (group_id IS NULL) and the events of every group they belong
-// to, restricted to the [dateFrom, dateTo] window. The result is keyed by the
+// personal events (group_id IS NULL), the events of every group they belong
+// to and the invites they organize or have accepted, restricted to the [dateFrom, dateTo] window. The result is keyed by the
 // member user id.
 func (r *EventPostgres) GetBusyEventsForUsers(userIDs []int, dateFrom, dateTo time.Time) (map[int][]model.Event, error) {
 	result := make(map[int][]model.Event)
@@ -243,6 +243,31 @@ func (r *EventPostgres) GetBusyEventsForUsers(userIDs []int, dateFrom, dateTo ti
 		return nil, err
 	}
 	for _, row := range groupRows {
+		result[row.MemberID] = append(result[row.MemberID], row.Event)
+	}
+
+	// Invites the user organizes or has accepted. They are not rows in
+	// events, so they come back as synthetic events with type "invite".
+	inviteQuery, inviteArgs, err := sqlx.In(fmt.Sprintf(`
+		SELECT i.organizer_id AS member_id, i.id, i.organizer_id AS user_id, i.title, i.description,
+			i.all_day, i.start_time, i.end_time, 'invite' AS type
+		FROM %[1]s i
+		WHERE i.organizer_id IN (?) AND i.end_time >= ? AND i.start_time <= ?
+		UNION ALL
+		SELECT p.user_id AS member_id, i.id, i.organizer_id AS user_id, i.title, i.description,
+			i.all_day, i.start_time, i.end_time, 'invite' AS type
+		FROM %[1]s i
+		JOIN %[2]s p ON p.invite_id = i.id
+		WHERE p.user_id IN (?) AND p.status = 'going' AND i.end_time >= ? AND i.start_time <= ?`,
+		invitesTable, inviteParticipantsTable), userIDs, dateFrom, dateTo, userIDs, dateFrom, dateTo)
+	if err != nil {
+		return nil, err
+	}
+	var inviteRows []busyRow
+	if err := r.db.Select(&inviteRows, r.db.Rebind(inviteQuery), inviteArgs...); err != nil {
+		return nil, err
+	}
+	for _, row := range inviteRows {
 		result[row.MemberID] = append(result[row.MemberID], row.Event)
 	}
 

@@ -73,6 +73,15 @@ type Group interface {
 	IsGroupMember(groupID, userID int) (bool, error)
 }
 
+type Invite interface {
+	CreateInvite(invite model.Invite, inviteeIDs []int) (int, error)
+	GetInvite(inviteID, userID int) (model.Invite, error)
+	ListInvites(userID int, filter model.InviteFilter) ([]model.Invite, int, error)
+	UpdateInvite(invite model.Invite, resetResponses bool) error
+	DeleteInvite(inviteID int) error
+	RespondInvite(inviteID, userID int, status string) error
+}
+
 type Repository struct {
 	Authorization
 	Token
@@ -80,6 +89,7 @@ type Repository struct {
 	Event
 	Friendship
 	Group
+	Invite
 }
 
 func NewRepository(db *sqlx.DB) *Repository {
@@ -90,5 +100,6 @@ func NewRepository(db *sqlx.DB) *Repository {
 		Event:         NewEventPostgres(db),
 		Friendship:    NewFriendshipPostgres(db),
 		Group:         NewGroupPostgres(db),
+		Invite:        NewInvitePostgres(db),
 	}
 }

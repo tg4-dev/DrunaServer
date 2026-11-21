@@ -204,6 +204,18 @@ All protected routes are available under **`/api/v1/...`** and legacy **`/api/..
 | POST | /api/v1/friends/accept | Accept request |
 | POST | /api/v1/friends/reject | Reject request |
 | DELETE | /api/v1/friends/ | Remove friend |
+| GET | /api/v1/friends/:username/busy?dateFrom=&dateTo= | Friend's busy intervals (no titles) |
+
+### Invites (auth required)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/v1/invites | Invite accepted friends to an event |
+| GET | /api/v1/invites?status=pending\|upcoming\|past | Invites I organize or am invited to |
+| GET | /api/v1/invites/:id | Invite with participants and answers |
+| PATCH | /api/v1/invites/:id | Update (organizer; time change resets answers) |
+| DELETE | /api/v1/invites/:id | Cancel (organizer) |
+| POST | /api/v1/invites/:id/respond | Answer `going` / `not_going` / `pending` |
 
 ### Groups (auth required)
 

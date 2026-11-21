@@ -21,13 +21,14 @@ Related docs: [README.md](../README.md) · [AGENTS.md](../AGENTS.md)
 8. [Profile](#profile)
 9. [Events](#events)
 10. [Friends](#friends)
-11. [Groups](#groups)
-12. [Public utility routes](#public-utility-routes)
-13. [Client architecture](#client-architecture)
-14. [Example client (React Native / TypeScript)](#example-client-react-native--typescript)
-15. [Push notifications](#push-notifications)
-16. [Testing](#testing)
-17. [Changelog notes](#changelog-notes)
+11. [Invites](#invites)
+12. [Groups](#groups)
+13. [Public utility routes](#public-utility-routes)
+14. [Client architecture](#client-architecture)
+15. [Example client (React Native / TypeScript)](#example-client-react-native--typescript)
+16. [Push notifications](#push-notifications)
+17. [Testing](#testing)
+18. [Changelog notes](#changelog-notes)
 
 ---
 
@@ -417,6 +418,74 @@ Prefix: `/api/v1/friends`. All routes require auth.
 
 Business rules: no self-request (**400**). Already friends, a duplicate pending request, or a request the other person already sent you returns **409** (`user already sent you a request`). A rejected request can be sent again. Only the recipient can accept or reject (**403**).
 
+### Friend's busy time
+
+`GET /api/v1/friends/:username/busy?dateFrom=2026-12-01&dateTo=2026-12-31&timezone=Europe/Moscow`
+
+**Response `data`:**
+
+```json
+{
+  "busy": [
+    { "startTime": "2026-12-05T09:00:00Z", "endTime": "2026-12-05T10:00:00Z", "allDay": false }
+  ]
+}
+```
+
+- Only for accepted friends. Anyone else, including unknown usernames, gets **404** `friend not found`.
+- Intervals only: no titles, types or ids. They cover the friend's personal events, the events of their groups, and the invites they organize or answered `going` to. Sorted by `startTime`; exact duplicates are removed, overlapping intervals are not merged.
+- `dateFrom`/`dateTo` are RFC3339 or `YYYY-MM-DD`. A date means midnight in `timezone` (IANA, default `UTC`); a date `dateTo` is inclusive. The range is at most 366 days (**400** otherwise). Intervals that overlap the range are returned whole.
+- Rate limit: 60 requests/minute per user.
+
+---
+
+## Invites
+
+Prefix: `/api/v1/invites`. All routes require auth. An invite is an event the organizer proposes to friends; each invitee answers `going` or `not_going`, can change the answer any number of times, or withdraw it (`pending`). The organizer has no participant entry and is always going.
+
+**Invite:**
+
+```json
+{
+  "id": 7,
+  "title": "Picnic",
+  "description": "bring a blanket",
+  "startTime": "2026-12-05T12:00:00Z",
+  "endTime": "2026-12-05T15:00:00Z",
+  "allDay": false,
+  "organizer": { "id": 1, "name": "Alice", "username": "alice", "avatarURL": "", "avatarColor": 3, "avatarFont": "onest" },
+  "participants": [
+    { "user": { "id": 2, "name": "Bob", "username": "bob", "avatarURL": "", "avatarColor": null, "avatarFont": null },
+      "status": "going", "respondedAt": "2026-12-01T08:00:00Z" }
+  ],
+  "createdAt": "2026-12-01T07:00:00Z",
+  "updatedAt": "2026-12-01T07:00:00Z"
+}
+```
+
+`status` is `pending`, `going` or `not_going`; `respondedAt` is `null` while pending.
+
+| Method | Path | Body | Response `data` | Who |
+|--------|------|------|-----------------|-----|
+| POST | (prefix) | `{ title, description?, startTime, endTime, allDay?, invitees: [username] }` | `Invite` | anyone |
+| GET | `?status=pending\|upcoming\|past&limit&offset` | — | `{ invites, total, limit, offset }` | organizer and invitees |
+| GET | `/:id` | — | `Invite` | organizer and invitees, others **404** |
+| PATCH | `/:id` | any of `{ title, description, startTime, endTime, allDay }` | `Invite` | organizer, invitees **403** |
+| DELETE | `/:id` | — | `{ "message": "invite deleted" }` | organizer, invitees **403** |
+| POST | `/:id/respond` | `{ "status": "going" \| "not_going" \| "pending" }` | `Invite` | invitees; organizer **400** |
+
+Rules:
+
+- `invitees` must be 1–50 accepted friends. Otherwise **400** with `error.field = "invitees"`; the message lists the usernames that are not friends. Inviting yourself is **400**.
+- `title` is required (up to 255 characters), `description` up to 2000, `endTime` after `startTime`. `allDay` works as for events.
+- Invites are not checked for overlaps with events or other invites.
+- **Changing `startTime` or `endTime` resets every answer to `pending`**: people agreed to the old time. Changing only the title, description or `allDay` keeps answers.
+- Deleting an invite removes it for everyone.
+- List filters: `pending` — I am invited, have not answered, and it has not ended; `upcoming` — not ended, and I organize it or have answered (`going` or `not_going`); `past` — ended. Without `status`, all invites. `past` is newest first, the rest soonest first. `limit` 1–100 (default 50).
+- Invites the user organizes or answered `going` to count as busy time in personal and group free time and in a friend's busy time.
+
+Notification outbox entries (see [Push notifications](#push-notifications)): `invite_created` to each invitee, `invite_answered` to the organizer (with `username` and `status`), `invite_changed` to invitees (with `responsesReset`), `invite_cancelled` to invitees. Every payload has `inviteId`, `title`, `startTime`, `endTime`, `allDay` and `organizerUsername`.
+
 ---
 
 ## Groups
@@ -677,12 +746,14 @@ The server records notification-worthy events in a `notification_outbox` table:
 - `friend_request` — someone sent a friend request
 - `group_confirm` — a member confirmed a group time
 - `group_event_created` — a group event was created (payload: `groupId`, `eventId`, `title`, `startTime`)
+- `invite_created`, `invite_answered`, `invite_changed`, `invite_cancelled` — see [Invites](#invites)
 
 There is **no push delivery built into DrunaServer**. A companion bot reads `notification_outbox` and sets `delivered_at` when a row is delivered. Enqueue failures are logged and do not fail the API call. Until a push pipeline exists, the mobile app should surface these by **polling** the relevant list endpoints when it foregrounds or on pull-to-refresh:
 
 - Incoming friend requests: `GET /api/v1/friends/requests/incoming`
 - Group state: `GET /api/v1/groups/:id`
 - Group events: `GET /api/v1/groups/:id/events`
+- Invites: `GET /api/v1/invites?status=pending`
 
 When a push pipeline is added later, the app will register its APNs/FCM device token via a (future) endpoint; that is not part of the current contract.
 

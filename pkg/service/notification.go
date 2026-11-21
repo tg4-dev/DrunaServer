@@ -1,6 +1,7 @@
 package service
 
 import (
+	"druna_server/pkg/model"
 	"druna_server/pkg/repository"
 	"encoding/json"
 	"time"
@@ -35,6 +36,23 @@ func (s *NotificationService) EnqueueGroupEventCreated(targetUserID, groupID, ev
 		"title":     title,
 		"startTime": startTime,
 	})
+}
+
+// EnqueueInvite queues an invite event (invite_created, invite_changed,
+// invite_cancelled, invite_answered) with the invite summary and extra fields.
+func (s *NotificationService) EnqueueInvite(targetUserID int, notificationType string, invite model.Invite, extra map[string]interface{}) {
+	payload := map[string]interface{}{
+		"inviteId":          invite.ID,
+		"title":             invite.Title,
+		"startTime":         invite.StartTime,
+		"endTime":           invite.EndTime,
+		"allDay":            invite.AllDay,
+		"organizerUsername": invite.Organizer.Username,
+	}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	s.enqueue(targetUserID, notificationType, payload)
 }
 
 func (s *NotificationService) enqueue(userID int, notificationType string, payload any) {

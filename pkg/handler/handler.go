@@ -84,6 +84,17 @@ func (h *Handler) registerProtectedRoutes(api *gin.RouterGroup, userLimiter *Rat
 		friends.POST("/accept", h.acceptFriendRequest)
 		friends.POST("/reject", h.rejectFriendRequest)
 		friends.DELETE("/", h.deleteFriend)
+		friends.GET("/:username/busy", userLimiter.MiddlewareKey(userRateKey), h.getFriendBusy)
+	}
+
+	invites := api.Group("/invites")
+	{
+		invites.POST("", h.createInvite)
+		invites.GET("", h.listInvites)
+		invites.GET("/:id", h.getInvite)
+		invites.PATCH("/:id", h.updateInvite)
+		invites.DELETE("/:id", h.deleteInvite)
+		invites.POST("/:id/respond", h.respondInvite)
 	}
 
 	events := api.Group("/events")

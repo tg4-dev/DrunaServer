@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"druna_server/pkg/model"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -242,4 +244,64 @@ func (h *Handler) deleteFriend(c *gin.Context) {
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"message": "friend deleted", "username": input.Username})
+}
+
+// parseRangeBound accepts RFC3339 or YYYY-MM-DD (midnight in timezone).
+// A date-only upper bound is inclusive, so it moves to the next midnight.
+func parseRangeBound(value, timezone string, upper bool) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	t, err := parseCalendarDate(value, timezone)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if upper {
+		t = t.AddDate(0, 0, 1)
+	}
+	return t, nil
+}
+
+// getFriendBusy godoc
+// @Summary When an accepted friend is busy
+// @Description Intervals only, no titles: personal and group events, invites the friend organizes or accepted. dateFrom/dateTo are RFC3339 or YYYY-MM-DD (dateTo inclusive, midnight in timezone). At most 366 days. Non-friends get 404.
+// @Tags friends
+// @Produce json
+// @Security ApiKeyAuth
+// @Param username path string true "Friend's username"
+// @Param dateFrom query string true "RFC3339 or YYYY-MM-DD"
+// @Param dateTo query string true "RFC3339 or YYYY-MM-DD (inclusive)"
+// @Param timezone query string false "IANA zone for date-only bounds (default UTC)"
+// @Success 200 {object} model.APIResponse{data=model.FriendBusyResponse}
+// @Failure 400 {object} model.APIResponse
+// @Failure 404 {object} model.APIResponse
+// @Router /api/v1/friends/{username}/busy [get]
+func (h *Handler) getFriendBusy(c *gin.Context) {
+	userID := h.getUserIdFromToken(c)
+	if userID == 0 {
+		return
+	}
+	fromRaw, toRaw := c.Query("dateFrom"), c.Query("dateTo")
+	if fromRaw == "" || toRaw == "" {
+		NewErrorResponse(c, http.StatusBadRequest, "dateFrom and dateTo are required")
+		return
+	}
+	timezone := c.Query("timezone")
+	from, err := parseRangeBound(fromRaw, timezone, false)
+	if err != nil {
+		newFieldErrorResponse(c, http.StatusBadRequest, "invalid dateFrom: "+err.Error(), "dateFrom")
+		return
+	}
+	to, err := parseRangeBound(toRaw, timezone, true)
+	if err != nil {
+		newFieldErrorResponse(c, http.StatusBadRequest, "invalid dateTo: "+err.Error(), "dateTo")
+		return
+	}
+
+	busy, err := h.services.Busy.FriendBusy(userID, c.Param("username"), from, to)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, model.FriendBusyResponse{Busy: busy})
 }
