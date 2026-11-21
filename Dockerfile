@@ -14,11 +14,12 @@ RUN CGO_ENABLED=0 go build -o drunaServer ./cmd/main.go
 
 FROM alpine:3.22
 
-ARG TARGETARCH=amd64
+# Set by BuildKit from the target platform; falls back to amd64 for the legacy builder.
+ARG TARGETARCH
 ARG MIGRATE_VERSION=v4.18.1
 
 RUN apk add --no-cache curl \
-    && curl -fsSL "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-${TARGETARCH}.tar.gz" \
+    && curl -fsSL "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-${TARGETARCH:-amd64}.tar.gz" \
     | tar xz -C /usr/local/bin migrate \
     && apk del curl \
     && addgroup -S druna && adduser -S -G druna -h /app druna
