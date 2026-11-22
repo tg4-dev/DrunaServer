@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -22,6 +25,7 @@ const (
 	tokenTypeRefresh = "refresh"
 	minPasswordLen   = 8
 	maxPasswordLen   = 72
+	maxNameLen       = 255
 )
 
 var dummyPasswordHash []byte
@@ -76,15 +80,60 @@ func (s *AuthService) CreateUser(user model.User) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if err := validateAvatarStyle(user.AvatarColor, user.AvatarFont); err != nil {
+		return 0, err
+	}
+	taken, err := s.repo.UsernameExists(user.Username)
+	if err != nil {
+		return 0, err
+	}
+	if taken {
+		return 0, ErrUsernameTaken
+	}
+
 	user.PasswordHash = hash
 	user.Password = ""
 	user.ID = 0
 	user.AvatarURL = ""
 	id, err := s.repo.CreateUser(user)
+	var dup *repository.DuplicateError
+	if errors.As(err, &dup) {
+		switch dup.Field {
+		case "username":
+			return 0, ErrUsernameTaken
+		case "email":
+			return 0, Conflict("email already taken").WithField("email")
+		}
+	}
 	if errors.Is(err, repository.ErrDuplicate) {
 		return 0, Conflict("username or email already taken")
 	}
 	return id, err
+}
+
+var usernamePattern = regexp.MustCompile(`^[a-z0-9_.]{3,32}$`)
+
+// UsernameAvailable reports whether nobody holds the username, ignoring case.
+// The username must match the client rules: 3-32 characters of a-z, 0-9, "_" and ".".
+func (s *AuthService) UsernameAvailable(username string) (bool, error) {
+	if !usernamePattern.MatchString(strings.ToLower(username)) {
+		return false, Validation("username must be 3-32 characters: a-z, 0-9, _ and .").WithField("username")
+	}
+	taken, err := s.repo.UsernameExists(username)
+	if err != nil {
+		return false, err
+	}
+	return !taken, nil
+}
+
+func validateAvatarStyle(color *int, font *string) error {
+	if color != nil && !model.IsAvatarColor(*color) {
+		return Validation(fmt.Sprintf("avatarColor must be between 0 and %d", model.AvatarColorCount-1)).WithField("avatarColor")
+	}
+	if font != nil && !model.IsAvatarFont(*font) {
+		return Validation("avatarFont must be one of: " + strings.Join(model.AvatarFonts, ", ")).WithField("avatarFont")
+	}
+	return nil
 }
 
 func (s *AuthService) GenerateAccessRefreshToken(username, password string) (string, string, error) {
@@ -188,14 +237,53 @@ func (s *AuthService) GetCurrentUser(userID int) (model.UserProfile, error) {
 	return userProfileFromUser(user), nil
 }
 
-func (s *AuthService) UpdateProfile(userID int, name, avatarURL string) (model.UserProfile, error) {
-	if avatarURL != "" {
-		avatarURL = sanitizeAvatarURL(avatarURL)
-		if avatarURL == "" {
-			return model.UserProfile{}, Validation("avatarURL must be an https URL")
+func (s *AuthService) UpdateProfile(userID int, input model.UpdateProfileInput) (model.UserProfile, error) {
+	var update model.ProfileUpdate
+
+	if input.Name.Set && input.Name.Value != nil && *input.Name.Value != "" {
+		name := strings.TrimSpace(*input.Name.Value)
+		if name == "" {
+			return model.UserProfile{}, Validation("name must not be blank").WithField("name")
+		}
+		if utf8.RuneCountInString(name) > maxNameLen {
+			return model.UserProfile{}, Validation(fmt.Sprintf("name must be at most %d characters", maxNameLen)).WithField("name")
+		}
+		update.Name = &name
+	} else if input.Name.Set && input.Name.Value == nil {
+		return model.UserProfile{}, Validation("name cannot be removed").WithField("name")
+	}
+
+	if input.AvatarURL.Set {
+		switch {
+		case input.AvatarURL.Value == nil:
+			empty := ""
+			update.AvatarURL = &empty
+		case *input.AvatarURL.Value != "":
+			avatarURL := sanitizeAvatarURL(*input.AvatarURL.Value)
+			if avatarURL == "" {
+				return model.UserProfile{}, Validation("avatarURL must be an https URL").WithField("avatarURL")
+			}
+			update.AvatarURL = &avatarURL
 		}
 	}
-	if err := s.repo.UpdateUserProfile(userID, name, avatarURL); err != nil {
+
+	if input.AvatarColor.Set {
+		if err := validateAvatarStyle(input.AvatarColor.Value, nil); err != nil {
+			return model.UserProfile{}, err
+		}
+		update.AvatarColor = &input.AvatarColor
+	}
+	if input.AvatarFont.Set {
+		if err := validateAvatarStyle(nil, input.AvatarFont.Value); err != nil {
+			return model.UserProfile{}, err
+		}
+		update.AvatarFont = &input.AvatarFont
+	}
+
+	if err := s.repo.UpdateUserProfile(userID, update); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return model.UserProfile{}, NotFound("user not found")
+		}
 		return model.UserProfile{}, err
 	}
 	return s.GetCurrentUser(userID)
@@ -203,16 +291,16 @@ func (s *AuthService) UpdateProfile(userID int, name, avatarURL string) (model.U
 
 func userProfileFromUser(user model.User) model.UserProfile {
 	return model.UserProfile{
-		ID:        user.ID,
-		Name:      user.Name,
-		Username:  user.Username,
-		Email:     user.Email,
-		AvatarURL: user.AvatarURL,
+		ID:          user.ID,
+		Name:        user.Name,
+		Username:    user.Username,
+		Email:       user.Email,
+		AvatarStyle: user.AvatarStyle,
 	}
 }
 
-func (s *AuthService) SearchUsers(prefix string) ([]model.FriendInfo, error) {
-	return s.repo.SearchUsers(prefix)
+func (s *AuthService) SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error) {
+	return s.repo.SearchUsers(userID, prefix)
 }
 
 func sanitizeAvatarURL(raw string) string {

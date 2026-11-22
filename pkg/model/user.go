@@ -7,5 +7,5 @@ type User struct {
 	Email        string `json:"email" binding:"required" db:"email"`
 	Password     string `json:"-"`
 	PasswordHash string `json:"-" db:"password_hash"`
-	AvatarURL    string `json:"avatarURL" db:"avatar_url"`
+	AvatarStyle
 }

@@ -20,16 +20,20 @@ func Success(c *gin.Context, statusCode int, data interface{}) {
 }
 
 func NewErrorResponse(c *gin.Context, statusCode int, message string) {
+	newFieldErrorResponse(c, statusCode, message, "")
+}
+
+func newFieldErrorResponse(c *gin.Context, statusCode int, message, field string) {
 	logrus.WithField("request_id", c.GetString(requestIDKey)).Error(message)
 	c.AbortWithStatusJSON(statusCode, model.APIResponse{
-		Error: &model.ErrorBody{Message: message, Code: statusCode},
+		Error: &model.ErrorBody{Message: message, Code: statusCode, Field: field},
 	})
 }
 
 func writeServiceError(c *gin.Context, err error) {
 	var domain *service.DomainError
 	if errors.As(err, &domain) {
-		NewErrorResponse(c, statusForKind(domain.Kind), domain.Error())
+		newFieldErrorResponse(c, statusForKind(domain.Kind), domain.Error(), domain.Field)
 		return
 	}
 	if errors.Is(err, repository.ErrNotFound) {

@@ -15,6 +15,8 @@ const (
 type DomainError struct {
 	Kind ErrorKind
 	Msg  string
+	// Field names the request field the error is about, if any.
+	Field string
 }
 
 func (e *DomainError) Error() string {
@@ -44,10 +46,18 @@ func Conflict(msg string) *DomainError {
 	return &DomainError{Kind: KindConflict, Msg: msg}
 }
 
+// WithField returns a copy of the error tied to a request field.
+func (e *DomainError) WithField(field string) *DomainError {
+	copied := *e
+	copied.Field = field
+	return &copied
+}
+
 var (
 	ErrPasswordTooShort    = Validation("password must be at least 8 characters")
 	ErrPasswordTooLong     = Validation("password must be at most 72 bytes")
 	ErrInvalidCredentials  = Unauthorized("invalid credentials")
+	ErrUsernameTaken       = Conflict("username already taken").WithField("username")
 	ErrGroupAccessDenied   = Forbidden("you are not a member of this group")
 	ErrGroupEventNotFound  = NotFound("group event not found")
 	ErrGroupEventForbidden = Forbidden("only the event creator or group owner can modify this event")

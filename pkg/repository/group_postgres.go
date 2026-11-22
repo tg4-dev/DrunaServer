@@ -86,7 +86,7 @@ func (r *GroupPostgres) GetGroupDetails(groupID, userID int) (model.GroupDetails
 	}
 
 	membersQuery := `
-		SELECT u.id, u.name, u.username, gm.confirmed_time
+		SELECT u.id, u.name, u.username, COALESCE(u.avatar_url, '') AS avatar_url, u.avatar_color, u.avatar_font, gm.confirmed_time
 		FROM group_members gm
 		JOIN users u ON gm.user_id = u.id
 		WHERE gm.group_id = $1

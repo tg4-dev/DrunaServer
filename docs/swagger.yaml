@@ -11,20 +11,65 @@ definitions:
       username:
         type: string
     type: object
+  model.BusyInterval:
+    properties:
+      allDay:
+        type: boolean
+      endTime:
+        type: string
+      startTime:
+        type: string
+    type: object
   model.ConfirmGroupTimeDoc:
     properties:
       confirmedTime:
         type: string
     type: object
+  model.CreateInviteInput:
+    properties:
+      allDay:
+        type: boolean
+      description:
+        type: string
+      endTime:
+        type: string
+      invitees:
+        items:
+          type: string
+        type: array
+      startTime:
+        type: string
+      title:
+        type: string
+    required:
+    - endTime
+    - invitees
+    - startTime
+    - title
+    type: object
   model.ErrorBody:
     properties:
       code:
         type: integer
+      field:
+        description: |-
+          Field names the request field the error is about, e.g. "username"
+          on a 409 from sign-up. Omitted when the error is not about one field.
+        type: string
       message:
         type: string
     type: object
   model.Event:
     properties:
+      allDay:
+        description: |-
+          AllDay marks an event shown as a day bar without times. StartTime and
+          EndTime still hold the covered interval (midnight to midnight in the
+          owner's time zone) and count as busy time.
+        type: boolean
+      description:
+        description: Description is free text up to MaxEventDescriptionLen characters.
+        type: string
       endTime:
         type: string
       eventID:
@@ -49,6 +94,28 @@ definitions:
       date:
         type: string
       timezone:
+        type: string
+    type: object
+  model.FriendBusyResponse:
+    properties:
+      busy:
+        items:
+          $ref: '#/definitions/model.BusyInterval'
+        type: array
+    type: object
+  model.FriendInfo:
+    properties:
+      avatarColor:
+        type: integer
+      avatarFont:
+        type: string
+      avatarURL:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      username:
         type: string
     type: object
   model.FriendRequestDoc:
@@ -76,10 +143,68 @@ definitions:
       timezone:
         type: string
     type: object
+  model.Invite:
+    properties:
+      allDay:
+        type: boolean
+      createdAt:
+        type: string
+      description:
+        type: string
+      endTime:
+        type: string
+      id:
+        type: integer
+      organizer:
+        $ref: '#/definitions/model.FriendInfo'
+      participants:
+        items:
+          $ref: '#/definitions/model.InviteParticipant'
+        type: array
+      startTime:
+        type: string
+      title:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  model.InviteListResponse:
+    properties:
+      invites:
+        items:
+          $ref: '#/definitions/model.Invite'
+        type: array
+      limit:
+        type: integer
+      offset:
+        type: integer
+      total:
+        type: integer
+    type: object
+  model.InviteParticipant:
+    properties:
+      respondedAt:
+        type: string
+      status:
+        type: string
+      user:
+        $ref: '#/definitions/model.FriendInfo'
+    type: object
   model.RenewTokenDoc:
     properties:
       refreshToken:
         type: string
+    type: object
+  model.RespondInviteInput:
+    properties:
+      status:
+        enum:
+        - going
+        - not_going
+        - pending
+        type: string
+    required:
+    - status
     type: object
   model.SignInDoc:
     properties:
@@ -90,6 +215,11 @@ definitions:
     type: object
   model.SignUpDoc:
     properties:
+      avatarColor:
+        description: Optional avatar style chosen during onboarding.
+        type: integer
+      avatarFont:
+        type: string
       email:
         type: string
       name:
@@ -99,11 +229,52 @@ definitions:
       username:
         type: string
     type: object
+  model.UpdateInviteInput:
+    properties:
+      allDay:
+        type: boolean
+      description:
+        type: string
+      endTime:
+        type: string
+      startTime:
+        type: string
+      title:
+        type: string
+    type: object
   model.UpdateProfileInput:
     properties:
+      avatarColor:
+        type: integer
+      avatarFont:
+        type: string
       avatarURL:
         type: string
       name:
+        type: string
+    type: object
+  model.UserSearchResult:
+    properties:
+      avatarColor:
+        type: integer
+      avatarFont:
+        type: string
+      avatarURL:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      relation:
+        type: string
+      username:
+        type: string
+    type: object
+  model.UsernameAvailability:
+    properties:
+      available:
+        type: boolean
+      username:
         type: string
     type: object
 host: localhost:8000
@@ -307,6 +478,57 @@ paths:
       summary: Remove friend
       tags:
       - friends
+  /api/v1/friends/{username}/busy:
+    get:
+      description: 'Intervals only, no titles: personal and group events, invites
+        the friend organizes or accepted. dateFrom/dateTo are RFC3339 or YYYY-MM-DD
+        (dateTo inclusive, midnight in timezone). At most 366 days. Non-friends get
+        404.'
+      parameters:
+      - description: Friend's username
+        in: path
+        name: username
+        required: true
+        type: string
+      - description: RFC3339 or YYYY-MM-DD
+        in: query
+        name: dateFrom
+        required: true
+        type: string
+      - description: RFC3339 or YYYY-MM-DD (inclusive)
+        in: query
+        name: dateTo
+        required: true
+        type: string
+      - description: IANA zone for date-only bounds (default UTC)
+        in: query
+        name: timezone
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.FriendBusyResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: When an accepted friend is busy
+      tags:
+      - friends
   /api/v1/friends/accept:
     post:
       consumes:
@@ -474,6 +696,8 @@ paths:
       - friends
   /api/v1/friends/search:
     get:
+      description: 'Excludes the caller. Each result has relation: friend, incoming,
+        outgoing or none.'
       parameters:
       - description: Username prefix
         in: query
@@ -486,7 +710,14 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/model.APIResponse'
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/model.UserSearchResult'
+                  type: array
+              type: object
         "401":
           description: Unauthorized
           schema:
@@ -908,6 +1139,235 @@ paths:
       summary: List groups for current user
       tags:
       - groups
+  /api/v1/invites:
+    get:
+      description: 'pending: I have not answered and it has not ended. upcoming: not
+        ended, and I organize it or have answered. past: ended. Without status: all.'
+      parameters:
+      - description: pending, upcoming or past
+        in: query
+        name: status
+        type: string
+      - description: Page size, 1-100 (default 50)
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.InviteListResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: List invites I organize or am invited to
+      tags:
+      - invites
+    post:
+      consumes:
+      - application/json
+      description: Every invitee must be an accepted friend, otherwise 400 lists them
+        (error.field = "invitees").
+      parameters:
+      - description: Invite
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/model.CreateInviteInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Invite'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Invite friends to an event
+      tags:
+      - invites
+  /api/v1/invites/{id}:
+    delete:
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Cancel an invite (organizer only)
+      tags:
+      - invites
+    get:
+      description: 404 unless I organize it or am invited.
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Invite'
+              type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get an invite
+      tags:
+      - invites
+    patch:
+      consumes:
+      - application/json
+      description: Absent fields are unchanged. Changing startTime or endTime resets
+        every answer to pending.
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to change
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/model.UpdateInviteInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Invite'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Update an invite (organizer only)
+      tags:
+      - invites
+  /api/v1/invites/{id}/respond:
+    post:
+      consumes:
+      - application/json
+      description: Invitees only, any number of times. "pending" withdraws the answer.
+        The organizer gets 400.
+      parameters:
+      - description: Invite ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: going, not_going or pending
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/model.RespondInviteInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.Invite'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Answer an invite
+      tags:
+      - invites
   /api/v1/users/me:
     get:
       produces:
@@ -933,6 +1393,9 @@ paths:
     patch:
       consumes:
       - application/json
+      description: |-
+        Absent fields are unchanged. `null` clears avatarURL, avatarColor or avatarFont.
+        An empty name or avatarURL is ignored (compatibility with older clients).
       parameters:
       - description: Profile fields
         in: body
@@ -953,6 +1416,10 @@ paths:
             $ref: '#/definitions/model.APIResponse'
         "401":
           description: Unauthorized
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/model.APIResponse'
       security:
@@ -1060,7 +1527,7 @@ paths:
           schema:
             $ref: '#/definitions/model.APIResponse'
         "409":
-          description: Conflict
+          description: error.field is \"username\" or \"email\
           schema:
             $ref: '#/definitions/model.APIResponse'
         "500":
@@ -1068,6 +1535,39 @@ paths:
           schema:
             $ref: '#/definitions/model.APIResponse'
       summary: Register a new user
+      tags:
+      - auth
+  /auth/username-available:
+    get:
+      description: Case-insensitive. The username must be 3-32 characters of a-z,
+        0-9, "_" and "."; otherwise 400.
+      parameters:
+      - description: Username to check
+        in: query
+        name: username
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/model.APIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/model.UsernameAvailability'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/model.APIResponse'
+      summary: Check whether a username is free
       tags:
       - auth
   /ping/:

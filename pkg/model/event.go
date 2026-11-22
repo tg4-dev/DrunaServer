@@ -11,8 +11,16 @@ type Event struct {
 	StartTime time.Time `json:"startTime" binding:"required" db:"start_time"`
 	EndTime   time.Time `json:"endTime" binding:"required" db:"end_time"`
 	Title     string    `json:"title" binding:"required" db:"title"`
-	Type      string    `json:"type" db:"type"`
+	// Description is free text up to MaxEventDescriptionLen characters.
+	Description string `json:"description" db:"description"`
+	// AllDay marks an event shown as a day bar without times. StartTime and
+	// EndTime still hold the covered interval (midnight to midnight in the
+	// owner's time zone) and count as busy time.
+	AllDay bool   `json:"allDay" db:"all_day"`
+	Type   string `json:"type" db:"type"`
 }
+
+const MaxEventDescriptionLen = 2000
 
 type EventFilter struct {
 	DateFrom *time.Time

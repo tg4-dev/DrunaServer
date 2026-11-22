@@ -21,13 +21,14 @@ Related docs: [README.md](../README.md) · [AGENTS.md](../AGENTS.md)
 8. [Profile](#profile)
 9. [Events](#events)
 10. [Friends](#friends)
-11. [Groups](#groups)
-12. [Public utility routes](#public-utility-routes)
-13. [Client architecture](#client-architecture)
-14. [Example client (React Native / TypeScript)](#example-client-react-native--typescript)
-15. [Push notifications](#push-notifications)
-16. [Testing](#testing)
-17. [Changelog notes](#changelog-notes)
+11. [Invites](#invites)
+12. [Groups](#groups)
+13. [Public utility routes](#public-utility-routes)
+14. [Client architecture](#client-architecture)
+15. [Example client (React Native / TypeScript)](#example-client-react-native--typescript)
+16. [Push notifications](#push-notifications)
+17. [Testing](#testing)
+18. [Changelog notes](#changelog-notes)
 
 ---
 
@@ -111,6 +112,8 @@ Every JSON response follows this shape.
 
 Client parsing rule: if `error` is non-null, treat it as a failure and surface `error.message`; otherwise use `data`. The `code` mirrors the HTTP status.
 
+When an error is about one request field, `error.field` names it (for example `"username"` on a taken username, `"avatarColor"` on an invalid color). Branch on `code` and `field`, not on the message text. `field` is omitted otherwise.
+
 ---
 
 ## Headers
@@ -146,11 +149,23 @@ Client parsing rule: if `error` is non-null, treat it as a failure and surface `
   "name": "Alice",
   "username": "alice",
   "email": "alice@example.com",
-  "password": "secret123"
+  "password": "secret123",
+  "avatarColor": 3,
+  "avatarFont": "onest"
 }
 ```
 
-Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. A taken username or email returns **409** `username or email already taken`. Unknown users and wrong passwords both return **401** `invalid credentials`.
+Send plaintext `password` (8–72 bytes). Do not send a pre-hashed value. `avatarColor` and `avatarFont` are optional (see [Avatar style](#avatar-style)).
+
+A taken username returns **409** with `error.field = "username"`; usernames are compared case-insensitively, so `Alice` is taken if `alice` exists. A taken email returns **409** with `error.field = "email"`. Unknown users and wrong passwords at sign-in both return **401** `invalid credentials`.
+
+### Check username availability
+
+`GET /auth/username-available?username=alice` (public, same rate limit as `/auth/*`)
+
+**Response `data`:** `{ "username": "alice", "available": false }`
+
+Case-insensitive. The username must be 3–32 characters of `a–z`, `0–9`, `_` and `.` (any letter case); otherwise **400** with `error.field = "username"`. Sign-up itself does not enforce this format yet.
 
 **Response `data`:** `{ "id": 1 }`
 
@@ -247,9 +262,20 @@ Prefix: `/api/v1/users`. All routes require auth.
   "name": "Alice",
   "username": "alice",
   "email": "alice@example.com",
-  "avatarURL": "https://example.com/avatar.png"
+  "avatarURL": "https://example.com/avatar.png",
+  "avatarColor": 3,
+  "avatarFont": "onest"
 }
 ```
+
+`avatarURL` is `""` when there is no avatar. `avatarColor` and `avatarFont` are `null` until the user picks them.
+
+### Avatar style
+
+- `avatarColor`: palette index `0`–`7`.
+- `avatarFont`: one of `onest`, `playfair`, `lobster`, `oswald`, `unbounded`, `comfortaa`.
+
+Other values return **400** with `error.field`. The style is returned in `GET /users/me`, in every `FriendInfo` (friend lists, requests, search) and in group members, so friends see the same avatar.
 
 ### Update profile
 
@@ -258,11 +284,15 @@ Prefix: `/api/v1/users`. All routes require auth.
 ```json
 {
   "name": "Alice Updated",
-  "avatarURL": "https://example.com/new.png"
+  "avatarURL": "https://example.com/new.png",
+  "avatarColor": 5,
+  "avatarFont": "lobster"
 }
 ```
 
-Both fields are optional; omitted fields are unchanged. Image upload is out of scope — send an already-hosted `avatarURL`. Non-empty `avatarURL` must be an `https` URL.
+All fields are optional; omitted fields are unchanged. `null` clears `avatarURL`, `avatarColor` or `avatarFont`. An empty string in `name` or `avatarURL` is ignored, so older clients that always send both fields keep working; `name: null` or a blank name returns **400**. Image upload is out of scope — send an already-hosted `avatarURL`, which must be an `https` URL.
+
+**Response `data`:** the updated profile, as in `GET /users/me`.
 
 ---
 
@@ -293,6 +323,8 @@ Query params (all optional):
       "eventID": 1,
       "userID": 1,
       "title": "Meeting",
+      "description": "Room 4",
+      "allDay": false,
       "startTime": "2026-06-17T10:00:00Z",
       "endTime": "2026-06-17T11:00:00Z",
       "type": "work"
@@ -311,6 +343,8 @@ Query params (all optional):
 ```json
 {
   "title": "Meeting",
+  "description": "Room 4",
+  "allDay": false,
   "startTime": "2026-06-17T10:00:00Z",
   "endTime": "2026-06-17T11:00:00Z",
   "type": "work"
@@ -319,11 +353,14 @@ Query params (all optional):
 
 **Response `data`:** `{ "eventId": 1 }`
 
+- `description` is optional, up to 2000 characters (longer returns **400**, `error.field = "description"`).
+- `allDay` is optional (default `false`). It only tells the client to draw the event as a day bar. Still send `startTime`/`endTime` as the covered interval, e.g. midnight to midnight in the user's time zone; that interval counts as busy time and is checked for overlaps.
+
 Validation errors (`400`): end before start, or overlapping with an existing personal event.
 
 ### Update event
 
-`PATCH /api/v1/events/:id` — same body as create.
+`PATCH /api/v1/events/:id` — same body as create. The event is replaced as a whole: an omitted `description` or `allDay` resets to `""` / `false`.
 
 **Response `data`:** `{ "message": "event updated" }`
 
@@ -362,7 +399,7 @@ Prefix: `/api/v1/friends`. All routes require auth.
 | Method | Path | Body | Response `data` |
 |--------|------|------|-----------------|
 | GET | `/list` | — | `{ "friends": [FriendInfo] }` |
-| GET | `/search?username=ali` | — | `{ "users": [FriendInfo] }` |
+| GET | `/search?username=ali` | — | `{ "users": [UserSearchResult] }` |
 | GET | `/request-list` | — | all pending |
 | GET | `/requests/incoming` | — | incoming pending |
 | GET | `/requests/outgoing` | — | outgoing pending |
@@ -371,9 +408,83 @@ Prefix: `/api/v1/friends`. All routes require auth.
 | POST | `/reject` | `{ "username": "bob" }` | `{ "message": "friend request rejected" }` |
 | DELETE | `/` | `{ "username": "bob" }` | `{ "message": "friend deleted" }` |
 
-**FriendInfo:** `{ "id": 2, "name": "Bob", "username": "bob" }`
+**FriendInfo:**
+
+```json
+{ "id": 2, "name": "Bob", "username": "bob", "avatarURL": "", "avatarColor": 1, "avatarFont": "playfair" }
+```
+
+**UserSearchResult:** `FriendInfo` plus `relation`: `friend`, `incoming` (they sent you a request), `outgoing` (you sent them one) or `none`. Search matches a username prefix, never returns the caller, and returns at most 20 users.
 
 Business rules: no self-request (**400**). Already friends, a duplicate pending request, or a request the other person already sent you returns **409** (`user already sent you a request`). A rejected request can be sent again. Only the recipient can accept or reject (**403**).
+
+### Friend's busy time
+
+`GET /api/v1/friends/:username/busy?dateFrom=2026-12-01&dateTo=2026-12-31&timezone=Europe/Moscow`
+
+**Response `data`:**
+
+```json
+{
+  "busy": [
+    { "startTime": "2026-12-05T09:00:00Z", "endTime": "2026-12-05T10:00:00Z", "allDay": false }
+  ]
+}
+```
+
+- Only for accepted friends. Anyone else, including unknown usernames, gets **404** `friend not found`.
+- Intervals only: no titles, types or ids. They cover the friend's personal events, the events of their groups, and the invites they organize or answered `going` to. Sorted by `startTime`; exact duplicates are removed, overlapping intervals are not merged.
+- `dateFrom`/`dateTo` are RFC3339 or `YYYY-MM-DD`. A date means midnight in `timezone` (IANA, default `UTC`); a date `dateTo` is inclusive. The range is at most 366 days (**400** otherwise). Intervals that overlap the range are returned whole.
+- Rate limit: 60 requests/minute per user.
+
+---
+
+## Invites
+
+Prefix: `/api/v1/invites`. All routes require auth. An invite is an event the organizer proposes to friends; each invitee answers `going` or `not_going`, can change the answer any number of times, or withdraw it (`pending`). The organizer has no participant entry and is always going.
+
+**Invite:**
+
+```json
+{
+  "id": 7,
+  "title": "Picnic",
+  "description": "bring a blanket",
+  "startTime": "2026-12-05T12:00:00Z",
+  "endTime": "2026-12-05T15:00:00Z",
+  "allDay": false,
+  "organizer": { "id": 1, "name": "Alice", "username": "alice", "avatarURL": "", "avatarColor": 3, "avatarFont": "onest" },
+  "participants": [
+    { "user": { "id": 2, "name": "Bob", "username": "bob", "avatarURL": "", "avatarColor": null, "avatarFont": null },
+      "status": "going", "respondedAt": "2026-12-01T08:00:00Z" }
+  ],
+  "createdAt": "2026-12-01T07:00:00Z",
+  "updatedAt": "2026-12-01T07:00:00Z"
+}
+```
+
+`status` is `pending`, `going` or `not_going`; `respondedAt` is `null` while pending.
+
+| Method | Path | Body | Response `data` | Who |
+|--------|------|------|-----------------|-----|
+| POST | (prefix) | `{ title, description?, startTime, endTime, allDay?, invitees: [username] }` | `Invite` | anyone |
+| GET | `?status=pending\|upcoming\|past&limit&offset` | — | `{ invites, total, limit, offset }` | organizer and invitees |
+| GET | `/:id` | — | `Invite` | organizer and invitees, others **404** |
+| PATCH | `/:id` | any of `{ title, description, startTime, endTime, allDay }` | `Invite` | organizer, invitees **403** |
+| DELETE | `/:id` | — | `{ "message": "invite deleted" }` | organizer, invitees **403** |
+| POST | `/:id/respond` | `{ "status": "going" \| "not_going" \| "pending" }` | `Invite` | invitees; organizer **400** |
+
+Rules:
+
+- `invitees` must be 1–50 accepted friends. Otherwise **400** with `error.field = "invitees"`; the message lists the usernames that are not friends. Inviting yourself is **400**.
+- `title` is required (up to 255 characters), `description` up to 2000, `endTime` after `startTime`. `allDay` works as for events.
+- Invites are not checked for overlaps with events or other invites.
+- **Changing `startTime` or `endTime` resets every answer to `pending`**: people agreed to the old time. Changing only the title, description or `allDay` keeps answers.
+- Deleting an invite removes it for everyone.
+- List filters: `pending` — I am invited, have not answered, and it has not ended; `upcoming` — not ended, and I organize it or have answered (`going` or `not_going`); `past` — ended. Without `status`, all invites. `past` is newest first, the rest soonest first. `limit` 1–100 (default 50).
+- Invites the user organizes or answered `going` to count as busy time in personal and group free time and in a friend's busy time.
+
+Notification outbox entries (see [Push notifications](#push-notifications)): `invite_created` to each invitee, `invite_answered` to the organizer (with `username` and `status`), `invite_changed` to invitees (with `responsesReset`), `invite_cancelled` to invitees. Every payload has `inviteId`, `title`, `startTime`, `endTime`, `allDay` and `organizerUsername`.
 
 ---
 
@@ -635,12 +746,14 @@ The server records notification-worthy events in a `notification_outbox` table:
 - `friend_request` — someone sent a friend request
 - `group_confirm` — a member confirmed a group time
 - `group_event_created` — a group event was created (payload: `groupId`, `eventId`, `title`, `startTime`)
+- `invite_created`, `invite_answered`, `invite_changed`, `invite_cancelled` — see [Invites](#invites)
 
 There is **no push delivery built into DrunaServer**. A companion bot reads `notification_outbox` and sets `delivered_at` when a row is delivered. Enqueue failures are logged and do not fail the API call. Until a push pipeline exists, the mobile app should surface these by **polling** the relevant list endpoints when it foregrounds or on pull-to-refresh:
 
 - Incoming friend requests: `GET /api/v1/friends/requests/incoming`
 - Group state: `GET /api/v1/groups/:id`
 - Group events: `GET /api/v1/groups/:id/events`
+- Invites: `GET /api/v1/invites?status=pending`
 
 When a push pipeline is added later, the app will register its APNs/FCM device token via a (future) endpoint; that is not part of the current contract.
 

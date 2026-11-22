@@ -14,8 +14,9 @@ type Authorization interface {
 	RenewToken(refreshToken string) (string, string, error)
 	Logout(refreshToken string) error
 	GetCurrentUser(userID int) (model.UserProfile, error)
-	UpdateProfile(userID int, name, avatarURL string) (model.UserProfile, error)
-	SearchUsers(prefix string) ([]model.FriendInfo, error)
+	UpdateProfile(userID int, input model.UpdateProfileInput) (model.UserProfile, error)
+	SearchUsers(userID int, prefix string) ([]model.UserSearchResult, error)
+	UsernameAvailable(username string) (bool, error)
 }
 
 type Event interface {
@@ -52,6 +53,19 @@ type Group interface {
 	DeleteGroupEvent(groupID, eventID, userID int) error
 }
 
+type Invite interface {
+	CreateInvite(organizerID int, input model.CreateInviteInput) (model.Invite, error)
+	GetInvite(inviteID, userID int) (model.Invite, error)
+	ListInvites(userID int, filter model.InviteFilter) (model.InviteListResponse, error)
+	UpdateInvite(inviteID, userID int, input model.UpdateInviteInput) (model.Invite, error)
+	DeleteInvite(inviteID, userID int) error
+	RespondInvite(inviteID, userID int, status string) (model.Invite, error)
+}
+
+type Busy interface {
+	FriendBusy(userID int, username string, from, to time.Time) ([]model.BusyInterval, error)
+}
+
 type Health interface {
 	PingDB() error
 }
@@ -73,6 +87,8 @@ type Service struct {
 	Event
 	Friendship
 	Group
+	Invite
+	Busy
 	Health
 }
 
@@ -83,6 +99,8 @@ func NewService(repos *repository.Repository) *Service {
 		Event:         NewEventService(repos.Event),
 		Friendship:    NewFriendshipService(repos.Friendship, repos.Authorization, notifications),
 		Group:         NewGroupService(repos.Group, repos.Friendship, repos.Event, notifications),
+		Invite:        NewInviteService(repos.Invite, repos.Friendship, notifications),
+		Busy:          NewBusyService(repos.Event, repos.Friendship),
 		Health:        NewHealthService(repos.Token),
 	}
 }

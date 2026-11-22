@@ -72,7 +72,7 @@ func (r *FriendshipPostgres) GetFriendList(userID int) ([]model.FriendInfo, erro
 	friends := []model.FriendInfo{}
 
 	query := `
-        SELECT u.id, u.name, u.username 
+        SELECT u.id, u.name, u.username, COALESCE(u.avatar_url, '') AS avatar_url, u.avatar_color, u.avatar_font
         FROM friends f
         JOIN users u ON 
             (f.friend_id = u.id AND f.user_id = $1 AND f.status = 'accepted') OR
@@ -89,7 +89,7 @@ func (r *FriendshipPostgres) GetFriendList(userID int) ([]model.FriendInfo, erro
 func (r *FriendshipPostgres) GetIncomingFriendRequests(userID int) ([]model.FriendInfo, error) {
 	friends := []model.FriendInfo{}
 	query := `
-        SELECT u.id, u.name, u.username
+        SELECT u.id, u.name, u.username, COALESCE(u.avatar_url, '') AS avatar_url, u.avatar_color, u.avatar_font
         FROM friends f
         JOIN users u ON f.user_id = u.id
         WHERE f.friend_id = $1 AND f.status = 'pending'`
@@ -104,7 +104,7 @@ func (r *FriendshipPostgres) GetIncomingFriendRequests(userID int) ([]model.Frie
 func (r *FriendshipPostgres) GetOutgoingFriendRequests(userID int) ([]model.FriendInfo, error) {
 	friends := []model.FriendInfo{}
 	query := `
-        SELECT u.id, u.name, u.username
+        SELECT u.id, u.name, u.username, COALESCE(u.avatar_url, '') AS avatar_url, u.avatar_color, u.avatar_font
         FROM friends f
         JOIN users u ON f.friend_id = u.id
         WHERE f.user_id = $1 AND f.status = 'pending'`

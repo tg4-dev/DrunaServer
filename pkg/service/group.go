@@ -121,7 +121,7 @@ func (s *GroupService) CreateGroupEvent(groupID, userID int, event model.Event) 
 		return 0, ErrGroupAccessDenied
 	}
 
-	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
+	if err := validateEvent(event); err != nil {
 		return 0, err
 	}
 
@@ -203,7 +203,7 @@ func (s *GroupService) UpdateGroupEvent(groupID, eventID, userID int, event mode
 		return err
 	}
 
-	if err := validateEventWindow(event.StartTime, event.EndTime); err != nil {
+	if err := validateEvent(event); err != nil {
 		return err
 	}
 	return mapEventWriteErr(s.eventRepo.UpdateGroupEvent(groupID, eventID, event), "event overlaps with an existing group event")
